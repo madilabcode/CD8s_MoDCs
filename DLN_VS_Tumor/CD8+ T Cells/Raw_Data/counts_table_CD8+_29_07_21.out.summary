@@ -1,0 +1,15 @@
+Status	./All_Bams/CD8_DLN_1.out.bam	./All_Bams/CD8_DLN_2.out.bam	./All_Bams/CD8_DLN_3.out.bam	./All_Bams/CD8_Tumor_1.out.bam	./All_Bams/CD8_Tumor_2.out.bam	./All_Bams/CD8_Tumor_3.out.bam
+Assigned	61206171	34344083	32055925	45443363	33184771	24171225
+Unassigned_Unmapped	0	0	0	0	0	0
+Unassigned_Read_Type	0	0	0	0	0	0
+Unassigned_Singleton	0	0	0	0	0	0
+Unassigned_MappingQuality	0	0	0	0	0	0
+Unassigned_Chimera	0	0	0	0	0	0
+Unassigned_FragmentLength	0	0	0	0	0	0
+Unassigned_Duplicate	0	0	0	0	0	0
+Unassigned_MultiMapping	20759876	11423720	10055336	13232106	9683456	20411132
+Unassigned_Secondary	0	0	0	0	0	0
+Unassigned_NonSplit	0	0	0	0	0	0
+Unassigned_NoFeatures	11781605	6614793	3306711	5306704	3814821	5501956
+Unassigned_Overlapping_Length	0	0	0	0	0	0
+Unassigned_Ambiguity	2882990	1615736	1591798	1985135	1485258	646141
