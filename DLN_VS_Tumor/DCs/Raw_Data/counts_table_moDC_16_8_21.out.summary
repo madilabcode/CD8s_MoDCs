@@ -1,0 +1,15 @@
+Status	./All_Bams/LN-1.out.bam	./All_Bams/LN-2.out.bam	./All_Bams/LN-3.out.bam	./All_Bams/Tumor-1.out.bam	./All_Bams/Tumor-2.out.bam	./All_Bams/Tumor-3.out.bam
+Assigned	50353687	51991369	46756672	45907393	49788024	39929800
+Unassigned_Unmapped	0	0	0	0	0	0
+Unassigned_Read_Type	0	0	0	0	0	0
+Unassigned_Singleton	0	0	0	0	0	0
+Unassigned_MappingQuality	0	0	0	0	0	0
+Unassigned_Chimera	0	0	0	0	0	0
+Unassigned_FragmentLength	0	0	0	0	0	0
+Unassigned_Duplicate	0	0	0	0	0	0
+Unassigned_MultiMapping	10364262	11100807	9792210	9567715	10941962	8412979
+Unassigned_Secondary	0	0	0	0	0	0
+Unassigned_NonSplit	0	0	0	0	0	0
+Unassigned_NoFeatures	4280403	5842976	5788763	3761180	5020910	4114959
+Unassigned_Overlapping_Length	0	0	0	0	0	0
+Unassigned_Ambiguity	2363015	2405199	2151032	2135638	2302970	1841804
