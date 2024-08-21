@@ -1,0 +1,2524 @@
+---
+title: "Project2_BulkRNA"
+author: "Kfir Inbal"
+date: "2023-11-13"
+output: html_document
+---
+```{r}
+#Loading libraries and setting working directory
+setwd("C:\\Kfir_Thesis_Asaf_Madi\\Project_2 - BulkRNAseq")
+library(DESeq2)
+library(dplyr)
+library(dbplyr)
+library(tibble)
+library(ggplot2)
+library(reticulate)
+library(tidyverse)
+library(plyr)
+library(RColorBrewer)
+library(ggsignif)
+library(patchwork)
+library(sleepwalk)
+library(gridExtra)
+library(janitor)
+library(purrr)
+library(ggpubr)
+library(grid)
+library(RColorBrewer)
+library(circlize)
+library(ggtext)
+library(EnhancedVolcano)
+library(pheatmap)
+library(viridis)
+library(countToFPKM)
+library(biomaRt)
+library(ggfortify)
+library(ggvenn)
+
+source("C:\\Kfir_Thesis_Asaf_Madi\\Project_2 - BulkRNAseq\\Bulk_RNA_Functions.R")
+```
+
+```{r}
+
+#Loading gene lists:
+#Loading data and analyzing
+ensembl <- useMart('ensembl', dataset = 'mmusculus_gene_ensembl')
+#Loading ligand-receptor table list
+Ligand_Recep_Mouse <- read.table(file = '.\\Gene_lists\\LigandReceptorTableMouse.tsv', sep = '\t', header = TRUE)
+
+#Subsetting to only ligands
+ligands_subset <- unique(Ligand_Recep_Mouse[, which(colnames(Ligand_Recep_Mouse) == "from")])
+write.table(ligands_subset, ".\\ligands_subset.txt", row.names = FALSE, col.names = FALSE)
+#Subsetting to only receptors
+receptors_subset <- unique(Ligand_Recep_Mouse[,which(colnames(Ligand_Recep_Mouse) == "to")])
+write.table(receptors_subset, ".\\receptors_subset.txt", row.names = FALSE, col.names = FALSE)
+
+#Loading TFs gene list
+Mouse_TFs <- scan(".\\Gene_lists\\Mouse_TFs.txt", what="", sep="\n")
+
+#ENSMBL ids to Gene Names
+Mouse_TFs_gene_names <- getBM(attributes = c('mgi_symbol','ensembl_gene_id'),filters = 'ensembl_gene_id',values = Mouse_TFs, mart = ensembl)
+Mouse_TFs_gene_names <- Mouse_TFs_gene_names[!(is.na(Mouse_TFs_gene_names$mgi_symbol) | Mouse_TFs_gene_names$mgi_symbol==""), ]
+Mouse_TFs_gene_names <- Mouse_TFs_gene_names[,1]
+
+
+```
+
+```{r}
+
+#ALL data - in vitro data of MoDCs, cDCs and T cells
+Raw_Counts_Data <- read.table(file = '.\\RawcountsMatrix.umi_corrected.tsv', sep = '\t', header = TRUE)
+#First column to row.names
+Raw_Counts_Data <- Raw_Counts_Data %>% remove_rownames %>% column_to_rownames(var="Gene")
+
+#All data except "Naive_MoDC_M4" because it was an outlier in the PCA plot
+Raw_Counts_Data_noNaiveM4 <- Raw_Counts_Data[ ,-which(colnames(Raw_Counts_Data) %in% c("Naive_MoDC_M4"))]
+
+
+#MoDC Wash WITH Naive_MoDC_M4 sample
+MoDC_Raw_Counts_Data_Wash_with_M4 <-
+  Raw_Counts_Data[, which(
+    colnames(Raw_Counts_Data) %in%
+      c(
+        "Gene",
+        "Naive_MoDC_M1",
+        "Naive_MoDC_M2",
+        "Naive_MoDC_M3",
+        "Naive_MoDC_M4",
+        "MoDC_6H_M1",
+        "MoDC_6H_M2",
+        "MoDC_6H_M3",
+        "MoDC_6H_M4",
+        "MoDC_48Hwash_M1",
+        "MoDC_48Hwash_M2",
+        "MoDC_48Hwash_M3",
+        "MoDC_48Hwash_M4"
+      )
+  )]
+
+    #Analysis
+List_MoDC_Wash_WITH_Naive_MoDC_M4 <-
+  Mouse_BulkRNAseqAnalysis(
+    Counts = MoDC_Raw_Counts_Data_Wash_with_M4,
+    Samples_Groups_By_Order = c(
+      rep("Treatment_48H_Wash", 4),
+      rep("Treatment_6H", 4) ,
+      rep("Control", 4)
+    ),
+    Samples_Colors_By_Order = c(rep("blue", 4), rep("darkgreen", 4),
+                                rep("purple", 4)),
+    plots_path =
+      ".\\MoDC\\With_Wash\\With_Naive_MoDC_M4_Sample",
+    Experiment_Name = "MoDC_All_Groups",
+    PCA_width = 10,
+    PCA_height = 7
+  )
+
+
+#MoDC Wash WITHOUT Naive_MoDC_M4 sample
+MoDC_Raw_Counts_Data_Wash <-
+  Raw_Counts_Data_noNaiveM4[, which(
+    colnames(Raw_Counts_Data_noNaiveM4) %in%
+      c(
+        "Gene",
+        "Naive_MoDC_M1",
+        "Naive_MoDC_M2",
+        "Naive_MoDC_M3",
+        "MoDC_6H_M1",
+        "MoDC_6H_M2",
+        "MoDC_6H_M3",
+        "MoDC_6H_M4",
+        "MoDC_48Hwash_M1",
+        "MoDC_48Hwash_M2",
+        "MoDC_48Hwash_M3",
+        "MoDC_48Hwash_M4"
+      )
+  )]
+MoDC_Raw_Counts_Data_Wash <- MoDC_Raw_Counts_Data_Wash %>% relocate(c("MoDC_6H_M1","MoDC_6H_M2","MoDC_6H_M3","MoDC_6H_M4"), .before = "MoDC_48Hwash_M1")
+
+List_MoDC_Wash_no_Naive_M4 <-
+  Mouse_BulkRNAseqAnalysis(
+    Counts = MoDC_Raw_Counts_Data_Wash,
+    Samples_Groups_By_Order = c(
+      rep("Treatment_6H", 4),
+      rep("Treatment_48H_Wash", 4),
+      rep("Naive", 3)
+    ),
+    Samples_Colors_By_Order = c(
+      "Treatment_6H" = "purple",
+      "Treatment_48H_Wash" = "darkgreen",
+      "Naive" = "blue"
+    ),
+    plots_path = ".\\MoDC\\With_Wash\\Without_Naive_MoDC_M4_Sample",
+    Experiment_Name = "InVitro_MoDC_Without_Naive_M4",
+    PCA_width = 10,
+    PCA_height = 7
+  )
+
+#MoDC no wash
+MoDC_Raw_Counts_Data_noWash <-
+  MoDC_Raw_Counts_Data_Wash[, -which(
+    colnames(MoDC_Raw_Counts_Data_Wash) %in% c(
+      "MoDC_48Hwash_M1",
+      "MoDC_48Hwash_M2",
+      "MoDC_48Hwash_M3",
+      "MoDC_48Hwash_M4"
+    )
+  )]
+
+List_MoDC_noWash_no_Naive_MoDC_M4 <-
+  Mouse_BulkRNAseqAnalysis(
+    Counts = MoDC_Raw_Counts_Data_noWash,
+    Samples_Groups_By_Order = c(rep("Treatment_6H", 4),
+                                rep("Naive", 3)),
+    Samples_Colors_By_Order = c("Naive" = "blue",
+                                "Treatment_6H"= "purple"),
+    plots_path =
+      ".\\MoDC\\Without_Wash\\Without_Naive_MoDC_M4_Sample",
+    Experiment_Name =
+      "InVitro_MoDC_6HvsMoDC_Naive_Without_Naive_M4",
+    PCA_width = 10,
+    PCA_height = 7
+  )
+
+
+#CD11c
+CD11c_Raw_Counts_Data <-
+  Raw_Counts_Data[, which(
+    colnames(Raw_Counts_Data) %in% c(
+      "Gene",
+      "Naive_CD11c_M1",
+      "Naive_CD11c_M2",
+      "Naive_CD11c_M3",
+      "Naive_CD11c_M4",
+      "CD11c_6H_M1",
+      "CD11c_6H_M2",
+      "CD11c_6H_M3",
+      "CD11c_6H_M4"
+    )
+  )]
+
+List_CD11c <-
+  Mouse_BulkRNAseqAnalysis(
+    Counts = CD11c_Raw_Counts_Data,
+    Samples_Groups_By_Order = c(rep("Treatment_6H", 4), rep("Naive", 4)),
+    Samples_Colors_By_Order = c("Treatment_6H" = "darkorange","Naive" = "darkcyan"),
+    plots_path = ".\\CD11c",
+    Experiment_Name = "cDC_6H_VS_cDC_Naive",
+    PCA_width = 10,
+    PCA_height = 7
+  )
+
+#MoDC and CD11c
+MoDC_CD11c_Raw_Data <-
+  Raw_Counts_Data_noNaiveM4[, which(
+    colnames(Raw_Counts_Data_noNaiveM4) %in%
+      c(
+        "Gene",
+        "Naive_MoDC_M1",
+        "Naive_MoDC_M2",
+        "Naive_MoDC_M3",
+        "MoDC_6H_M1",
+        "MoDC_6H_M2",
+        "MoDC_6H_M3",
+        "MoDC_6H_M4",
+        "MoDC_48Hwash_M1",
+        "MoDC_48Hwash_M2",
+        "MoDC_48Hwash_M3",
+        "MoDC_48Hwash_M4",
+        "Naive_CD11c_M1",
+        "Naive_CD11c_M2",
+        "Naive_CD11c_M3",
+        "Naive_CD11c_M4",
+        "CD11c_6H_M1",
+        "CD11c_6H_M2",
+        "CD11c_6H_M3",
+        "CD11c_6H_M4"
+      )
+  )]
+
+
+MoDC_CD11c_Raw_Data <- MoDC_CD11c_Raw_Data %>% relocate(c( "MoDC_6H_M1","MoDC_6H_M2","MoDC_6H_M3","MoDC_6H_M4"),.before = "CD11c_6H_M1")
+
+MoDC_CD11c_Raw_Data <- MoDC_CD11c_Raw_Data %>% relocate(c("Naive_MoDC_M1","Naive_MoDC_M2","Naive_MoDC_M3"),.before = "Naive_CD11c_M1")
+
+List_MoDC_CD11c_MoDC_6HvsCD11c_6H <-
+  Deseq2_Specific_Comparisons(
+    Counts = MoDC_CD11c_Raw_Data,
+    grp = "MoDC_Treatment_6H",
+    grp2 = "CD11c_Treatment_6H" ,
+    Samples_Groups_By_Order = c(
+      rep("CD11c_Treatment_6H", 4),
+      rep("MoDC_Treatment_48H_Wash", 4),
+      rep("MoDC_Treatment_6H", 4),
+      rep("CD11c_Control", 4),
+      rep("MoDC_Control", 3)
+    ),
+    Samples_Colors_By_Order = c(
+      rep("darkcyan", 4),
+      rep("darkorange", 4),
+      rep("blue", 4),
+      rep("darkgreen", 4),
+      rep("purple", 3)
+    ),
+    plots_path =
+      ".\\MoDC_CD11c\\New",
+    Experiment_Name = "MoDC_CD11c",
+    PCA_width = 10,
+    PCA_height = 7
+  )
+
+Deseq2_Specific_Comparisons(
+  Counts = MoDC_CD11c_Raw_Data,
+  grp = "MoDC_Control",
+  grp2 = "CD11c_Control",
+  Samples_Groups_By_Order = c(
+    rep("CD11c_Treatment_6H", 4),
+    rep("MoDC_Treatment_48H_Wash", 4),
+    rep("MoDC_Treatment_6H", 4),
+    rep("CD11c_Control", 4),
+    rep("MoDC_Control", 3)
+  ),
+  Samples_Colors_By_Order = c(
+    rep("darkcyan", 4),
+    rep("darkorange", 4),
+    rep("blue", 4),
+    rep("darkgreen", 4),
+    rep("purple", 3)
+  ),
+  plots_path = ".\\MoDC_CD11c\\New",
+  Experiment_Name = "MoDC_CD11c",
+  PCA_width = 10,
+  PCA_height = 7
+)
+
+
+
+List_MoDC_CD11c_MoDCvsControl <-
+  Deseq2_Specific_Comparisons(
+    Counts = MoDC_CD11c_Raw_Data,
+    grp = "MoDC_Treatment_6H",
+    grp2 = "MoDC_Control" ,
+    Samples_Groups_By_Order = c(
+      rep("CD11c_Treatment_6H", 4),
+      rep("MoDC_Treatment_48H_Wash", 4),
+      rep("MoDC_Treatment_6H", 4),
+      rep("CD11c_Control", 4),
+      rep("MoDC_Control", 3)
+    ),
+    Samples_Colors_By_Order = c(
+      rep("darkcyan", 4),
+      rep("darkorange", 4),
+      rep("blue", 4),
+      rep("darkgreen", 4),
+      rep("purple", 3)
+    ),
+    plots_path = ".\\MoDC_CD11c",
+    Experiment_Name = "MoDC_CD11c",
+    PCA_width = 10,
+    PCA_height = 7
+  )
+
+
+List_MoDC_CD11c_CD11cvsControl <-
+  Deseq2_Specific_Comparisons(
+    Counts = MoDC_CD11c_Raw_Data,
+    grp = "CD11c_Treatment_6H",
+    grp2 = "CD11c_Control" ,
+    Samples_Groups_By_Order = c(
+      rep("CD11c_Treatment_6H", 4),
+      rep("MoDC_Treatment_48H_Wash", 4),
+      rep("MoDC_Treatment_6H", 4),
+      rep("CD11c_Control", 4),
+      rep("MoDC_Control", 3)
+    ),
+    Samples_Colors_By_Order = c(
+      rep("darkcyan", 4),
+      rep("darkorange", 4),
+      rep("blue", 4),
+      rep("darkgreen", 4),
+      rep("purple", 3)
+    ),
+    plots_path =
+      ".\\MoDC_CD11c",
+    Experiment_Name = "MoDC_CD11c",
+    PCA_width = 10,
+    PCA_height = 7
+  )
+
+List_MoDC_CD11c <-
+  Mouse_BulkRNAseqAnalysis(
+    Counts = MoDC_CD11c_Raw_Data,
+    Samples_Groups_By_Order = c(
+      rep("MoDC_Treatment_6H", 4),
+      rep("cDC_Treatment_6H", 4),
+      rep("MoDC_Treatment_48H_Wash", 4),
+      rep("MoDC_Naive", 3),
+      rep("cDC_Naive", 4)
+    ),
+    Samples_Colors_By_Order = c(
+      "MoDC_Treatment_6H" = "purple",
+      "cDC_Treatment_6H" = "darkorange",
+      "MoDC_Treatment_48H_Wash" = "darkgreen",
+      "MoDC_Naive" = "blue",
+      "cDC_Naive" = "darkcyan"
+    ),
+    plots_path = ".\\MoDC_CD11c",
+    Experiment_Name = "MoDC_CD11c",
+    PCA_width = 13,
+    PCA_height = 7,
+    Comparisons = T,
+    ref = F
+  )
+
+#MoDCvscDC No Wash
+MoDC_CD11c_Raw_Data_NoWash <- MoDC_CD11c_Raw_Data[,  -which(colnames(MoDC_CD11c_Raw_Data)  %in% c("MoDC_48Hwash_M1","MoDC_48Hwash_M2","MoDC_48Hwash_M3","MoDC_48Hwash_M4"))]
+
+List_MoDC_CD11c_NoWash <-
+  Mouse_BulkRNAseqAnalysis(
+    Counts = MoDC_CD11c_Raw_Data_NoWash,
+    Samples_Groups_By_Order = c(
+      rep("MoDC_Treatment_6H", 4),
+      rep("cDC_Treatment_6H", 4),
+      rep("MoDC_Naive", 3),
+      rep("cDC_Naive", 4)
+    ),
+    Samples_Colors_By_Order = c(
+      "MoDC_Treatment_6H" = "purple",
+      "cDC_Treatment_6H" = "darkorange",
+      "MoDC_Naive" = "blue",
+      "cDC_Naive" = "darkcyan"
+    ),
+    plots_path = ".\\MoDC_CD11c\\Without_Wash",
+    Experiment_Name = "MoDC_CD11c_NoWash",
+    PCA_width = 13,
+    PCA_height = 7,
+    Comparisons = T,
+    ref = F
+  )
+
+
+
+#T Cells
+T_cells_Raw_Counts_Data <-
+  Raw_Counts_Data[, which(
+    colnames(Raw_Counts_Data) %in% c(
+      "Gene",
+      "Naive_T_cell_1",
+      "Naive_T_cell_2",
+      "Naive_T_cell_3",
+      "Naive_T_cell_4",
+      "T_cell_CD3_28_1",
+      "T_cell_CD3_28_2",
+      "T_cell_CD3_28_3",
+      "T_cell_CD3_28_4",
+      "T_PimedMoDC_1",
+      "T_PimedMoDC_2",
+      "T_PimedMoDC_3",
+      "T_PimedMoDC_4",
+      "T_PimedCD11c_1",
+      "T_PimedCD11c_2",
+      "T_PimedCD11c_3",
+      "T_PimedCD11c_4",
+      "T_PCD11_LCD11_1",
+      "T_PCD11_LCD11_2",
+      "T_PCD11_LCD11_3",
+      "T_PCD11_LCD11_4",
+      "T_PCD11_LMoDC_1",
+      "T_PCD11_LMoDC_2",
+      "T_PCD11_LMoDC_3",
+      "T_PCD11_LMoDC_4"
+    )
+  )]
+
+#Naive samples to the end:
+T_cells_Raw_Counts_Data <-
+  relocate(
+    T_cells_Raw_Counts_Data,
+    c(
+      "Naive_T_cell_1",
+      "Naive_T_cell_2",
+      "Naive_T_cell_3",
+      "Naive_T_cell_4"
+    ),
+    .after = last_col()
+  )
+
+
+T_cells_Raw_Only_Treatments <-
+  Raw_Counts_Data[, which(
+    colnames(Raw_Counts_Data) %in%
+      c(
+        "Gene",
+        "T_PimedMoDC_1",
+        "T_PimedMoDC_2",
+        "T_PimedMoDC_3",
+        "T_PimedMoDC_4",
+        "T_PimedCD11c_1",
+        "T_PimedCD11c_2",
+        "T_PimedCD11c_3",
+        "T_PimedCD11c_4",
+        "T_PCD11_LCD11_1",
+        "T_PCD11_LCD11_2",
+        "T_PCD11_LCD11_3",
+        "T_PCD11_LCD11_4",
+        "T_PCD11_LMoDC_1",
+        "T_PCD11_LMoDC_2",
+        "T_PCD11_LMoDC_3",
+        "T_PCD11_LMoDC_4"
+      )
+  )]
+
+T_cells_Raw_Only_Treatments <- T_cells_Raw_Only_Treatments %>% relocate(c( "T_PCD11_LMoDC_1","T_PCD11_LMoDC_2","T_PCD11_LMoDC_3","T_PCD11_LMoDC_4"),.before = "T_PCD11_LCD11_1" )
+T_cells_Raw_Only_Treatments <- T_cells_Raw_Only_Treatments %>% relocate(c("T_PimedMoDC_1","T_PimedMoDC_2","T_PimedMoDC_3","T_PimedMoDC_4"),.before = "T_PimedCD11c_1")
+
+
+T_cells_Primed_Naive <-
+  Raw_Counts_Data[, which(
+    colnames(Raw_Counts_Data) %in% c(
+      "Gene",
+      "T_PimedMoDC_1",
+      "T_PimedMoDC_2",
+      "T_PimedMoDC_3",
+      "T_PimedMoDC_4",
+      "T_PimedCD11c_1",
+      "T_PimedCD11c_2",
+      "T_PimedCD11c_3",
+      "T_PimedCD11c_4",
+      "Naive_T_cell_1",
+      "Naive_T_cell_2",
+      "Naive_T_cell_3",
+      "Naive_T_cell_4"
+    )
+  )]
+#Naive samples to the end:
+T_cells_Primed_Naive <-
+  relocate(
+    T_cells_Primed_Naive,
+    c(
+      "Naive_T_cell_1",
+      "Naive_T_cell_2",
+      "Naive_T_cell_3",
+      "Naive_T_cell_4"
+    ),
+    .after = last_col()
+  )
+
+
+List_T_Cells <-
+  Mouse_BulkRNAseqAnalysis(
+    Counts = T_cells_Raw_Counts_Data,
+    Samples_Groups_By_Order = c(
+      rep("LcDC", 4),
+      rep("LMoDC", 4),
+      rep("PcDC", 4),
+      rep("PMoDC", 4),
+      rep("CD3_CD28", 4),
+      rep("Naive", 4)
+    ),
+    
+    Samples_Colors_By_Order = c(
+      "LcDC" = "darkblue",
+      "LMoDC" = "pink",
+      "PcDC" = "black",
+      "PMoDC" = "#964B00",
+      "CD3_CD28" = "darkgray" ,
+      "Naive" = "darkred"
+    ),
+    plots_path = ".\\T_Cells",
+    Experiment_Name = "In_Vitro_T_Cells",
+    PCA_width = 10,
+    PCA_height = 7,
+    Comparisons = TRUE,
+    ref = TRUE
+  )
+
+
+
+List_T_Cells_Only_Treatments <-
+  Mouse_BulkRNAseqAnalysis(
+    Counts = T_cells_Raw_Only_Treatments,
+    Samples_Groups_By_Order = c(
+      rep("LMoDC", 4),
+      rep("LcDC", 4),
+      rep("PMoDC", 4),
+      rep("PcDC", 4)
+    ),
+    Samples_Colors_By_Order = c(
+      "LMoDC" = "pink",
+      "LcDC" = "darkblue",
+      "PMoDC" = "#964B00",
+      "PcDC" = "black"
+    ),
+    plots_path = ".\\T_Cells\\Priming_Licensing_Only",
+    Experiment_Name = "T_Cells_Treatments_Only",
+    PCA_width = 10,
+    PCA_height = 7,
+    Comparisons = TRUE,
+    ref = FALSE
+  )
+
+List_T_Cells_Only_Treatments <- readRDS("C:\\Kfir_Thesis_Asaf_Madi\\Project_2 - BulkRNAseq\\T_Cells\\Priming_Licensing_Only\\T_Cells_Treatments_Only.rds")
+T_Cells_Treatments_Only_Normalized_Data <- as.data.frame(assay(List_T_Cells_Only_Treatments$Counts_Normalized_data$data))
+write.csv(T_Cells_Treatments_Only_Normalized_Data,"C:\\Kfir_Thesis_Asaf_Madi\\Project_2 - BulkRNAseq\\T_Cells\\Priming_Licensing_Only\\T_Cells_Treatments_Only_Normalized_Data.csv")
+
+List_T_Cells_PMoDC_PCD11c_Naive <-
+  Mouse_BulkRNAseqAnalysis(
+    Counts = T_cells_Primed_Naive,
+    Samples_Groups_By_Order = c(rep("PCD11", 4), rep("PMoDC", 4),
+                                rep("Control", 4)),
+    
+    Samples_Colors_By_Order = c(
+      "PCD11" = "black",
+      "PMoDC" = "#964B00",
+      "Control" = "darkred"
+    ),
+    plots_path = ".\\T_Cells\\PMoDC_PCD11c_Naive",
+    Experiment_Name = "T_Cells_Primed_Naive",
+    PCA_width = 10,
+    PCA_height = 7,
+    Comparisons = TRUE,
+    ref = TRUE
+  )
+
+```
+
+```{r}
+#New legend label grob
+legend_title <- textGrob("Row Z-Score",x=0,y=1.01,hjust=0,vjust=0, gp = gpar(fontsize=15,fontface="bold"))
+
+```
+
+```{r}
+########################## Creating Heatmaps and Further analysis ##############################################
+######################### #MoDC Wash without Naive_MoDC_M4 sample - ' List_MoDC_Wash_no_Naive_M4 ' ########
+
+#MoDC Wash WITHOUT Naive_MoDC_M4 sample - ' List_MoDC_Wash_no_Naive_M4 '
+
+
+List_MoDC_Wash_no_Naive_M4 <-
+  readRDS(".\\MoDC\\With_Wash\\Without_Naive_MoDC_M4_Sample\\MoDC_Without_Naive_M4.rds")
+
+#HEATMAPS
+#General HEATMAP of EVERYTHING 
+MoDC_Wash_no_NaiveM4_heatmap <-
+  pheatmap(
+    List_MoDC_Wash_no_Naive_M4$Heatmap_df_LRT,
+    scale = "row",
+    show_rownames = F,
+    show_colnames = T,
+    cluster_rows = T,
+    cluster_cols = T,
+    cutree_cols  = 3,
+    cutree_rows = 6,
+    fontsize_col = 15,
+    clustering_distance_rows = "euclidean",
+    clustering_distance_cols = "euclidean",
+    treeheight_row = 0,
+    color =
+      rev(colorRampPalette(brewer.pal(10, "RdBu"))(256)),
+    cellwidth = 20,
+    cellheight = 0.1,
+    display_numbers = FALSE,
+    border_color = NA,
+    annotation_col =
+      data.frame(
+        Group =
+          factor(c(rep(
+            c("6H_Treatment", "48H_Wash"),
+            each =
+              4
+          ) , rep("Naive", 3))),
+        row.names = c(
+          "MoDC_6H_M4",
+          "MoDC_6H_M1",
+          "MoDC_6H_M2",
+          "MoDC_6H_M3",
+          "MoDC_48Hwash_M4",
+          "MoDC_48Hwash_M3",
+          "MoDC_48Hwash_M1",
+          "MoDC_48Hwash_M2",
+          "Naive_MoDC_M3",
+          "Naive_MoDC_M1",
+          "Naive_MoDC_M2"
+        )
+      ),
+    annotation_colors = list(
+      Group = c(
+        "6H_Treatment" = "#bf05fc",
+        "48H_Wash" = "#439c25",
+        "Naive" = "#0c7af7"
+      )
+    ),
+    annotation_legend = T
+  )
+#PDF: 10 10 landscape
+
+
+General_col_order <- MoDC_Wash_no_NaiveM4_heatmap$tree_col$order
+
+MoDC_Wash_no_NaiveM4_heatmap <- pheatmap.edit(MoDC_Wash_no_NaiveM4_heatmap, annotations_title_x = -300)
+
+#Saving the heatmap as dataframe:
+#Calculating scaled values of the data:
+MoDC_Wash_no_NaiveM4_heatmap_scaled <- round(pheatmap.scale(List_MoDC_Wash_no_Naive_M4$Heatmap_df_LRT), 2)
+
+row.order = MoDC_Wash_no_NaiveM4_heatmap$tree_row$order
+
+MoDC_Wash_no_NaiveM4_heatmap_scaled <- MoDC_Wash_no_NaiveM4_heatmap_scaled[row.order,General_col_order]
+
+write.csv(MoDC_Wash_no_NaiveM4_heatmap_scaled, file = ".\\MoDC\\With_Wash\\Without_Naive_MoDC_M4_Sample\\Heatmaps\\Heatmap_DF_MoDC_no_NaiveM4_ALL.csv")
+
+#PLOTTING
+MoDC_Wash_no_NaiveM4_heatmap
+
+
+
+#TFs (TRANSCRIPTION FACTORS) HEATMAP
+
+  #Data
+MoDC_Wash_no_MouseTFs <- subset(List_MoDC_Wash_no_Naive_M4$Heatmap_df_LRT, rownames(List_MoDC_Wash_no_Naive_M4$Heatmap_df_LRT) %in% Mouse_TFs_gene_names)
+  #Generating Heatmap
+MoDC_Wash_no_MouseTFs_Heatmap <- pheatmap(
+  MoDC_Wash_no_MouseTFs,
+  scale = "row",
+  show_rownames = T,
+  show_colnames = T,
+  cluster_rows = T,
+  fontsize_col = 15,
+  cluster_cols = MoDC_Wash_no_NaiveM4_heatmap$tree_col,
+  cutree_rows = 4,
+  cutree_cols  = 3,
+  clustering_distance_rows = "euclidean",
+  clustering_distance_cols = "euclidean",
+  treeheight_row = 0,
+  color =
+    rev(colorRampPalette(brewer.pal(10, "RdBu"))(256)),
+  cellwidth = 30,
+  fontsize_row = 7,
+  display_numbers = FALSE,
+  border_color = N,
+  annotation_col =
+    data.frame(
+      Group =
+        factor(c(rep(
+          c("6H_Treatment", "48H_Wash"),
+          each =
+            4
+        ) , rep("Naive", 3))),
+      row.names = c(
+        "MoDC_6H_M4",
+        "MoDC_6H_M1",
+        "MoDC_6H_M2",
+        "MoDC_6H_M3",
+        "MoDC_48Hwash_M4",
+        "MoDC_48Hwash_M3",
+        "MoDC_48Hwash_M1",
+        "MoDC_48Hwash_M2",
+        "Naive_MoDC_M3",
+        "Naive_MoDC_M1",
+        "Naive_MoDC_M2"
+      )
+    ),
+  annotation_colors = list(
+    Group = c(
+      "6H_Treatment" = "#bf05fc",
+      "48H_Wash" = "#439c25",
+      "Naive" = "#0c7af7"
+    )
+  ),
+  annotation_legend = T
+)
+
+#PDF: 10 10 landscape
+
+
+MoDC_Wash_no_MouseTFs_Heatmap <- pheatmap.edit(MoDC_Wash_no_MouseTFs_Heatmap, annotations_title_x = -400)
+
+
+#Calculating scaled values of the data:
+MoDC_Wash_no_MouseTFs_scaled <- round(pheatmap.scale(MoDC_Wash_no_MouseTFs), 2)
+
+row.order = MoDC_Wash_no_MouseTFs_Heatmap$tree_row$order
+
+MoDC_Wash_no_MouseTFs_scaled <- MoDC_Wash_no_MouseTFs_scaled[row.order,General_col_order]
+
+write.csv(MoDC_Wash_no_MouseTFs_scaled, file = ".\\MoDC\\With_Wash\\Without_Naive_MoDC_M4_Sample\\Heatmaps\\Heatmap_DF_MoDC_no_NaiveM4_TFs.csv")
+
+#Specific chosen labels from specific clusters:
+genes_order_in_heatmap <- rownames(MoDC_Wash_no_MouseTFs[MoDC_Wash_no_MouseTFs_Heatmap$tree_row[["order"]],])
+  
+cutree_row_clusters<- sort(cutree(MoDC_Wash_no_MouseTFs_Heatmap$tree_row, k=4))
+  
+cluster2 <- subset(cutree_row_clusters, cutree_row_clusters == 2)
+cluster2_genes <- names(cluster2)
+cluster2_genes_ordered <- genes_order_in_heatmap[genes_order_in_heatmap %in% cluster2_genes]
+
+cluster3 <- subset(cutree_row_clusters, cutree_row_clusters == 3)
+cluster3_genes <- names(cluster3)
+cluster3_genes_ordered <- genes_order_in_heatmap[genes_order_in_heatmap %in% cluster3_genes]
+
+#PLOTTING
+#Using function "add.flag" to add arrows to the top and bottom gene labels of the chosen clusters in the heatmap
+add.flag(MoDC_Wash_no_MouseTFs_Heatmap,
+         list.kept.labels = list(cluster2_genes_ordered,cluster3_genes_ordered),
+         repel.degree = 0,
+         upward.list = list(T,F))
+  #Side title
+grid.text("Transcription Factors", x=0.13, y=0.6, rot=90,gp=gpar(fontsize=20, col="black"))
+
+
+
+
+
+
+
+
+#LIGANDS HEATMAP
+  #Data
+MoDC_Wash_no_MouseLigands <- subset(List_MoDC_Wash_no_Naive_M4$Heatmap_df_LRT, rownames(List_MoDC_Wash_no_Naive_M4$Heatmap_df_LRT) %in% ligands_subset)
+  #Saving rownames
+#write.table(rownames(MoDC_Wash_no_MouseLigands), ".\\MoDC\\With_Wash\\Without_Naive_MoDC_M4_Sample\\ligands_heatmap_subset.txt", row.names = FALSE, col.names = FALSE)
+
+  #Subset of ligand genes to show
+Ligands_To_Show <- read.table(file = '.\\Gene_lists\\ligands_subset_To_Show.txt', sep = '\n', header = FALSE)$V1
+  #Setting rownames that are not wanted as "", while keeping the Ligands_To_Show rownames
+labs.row <- rownames(MoDC_Wash_no_MouseLigands)
+labs.row[!(labs.row %in% Ligands_To_Show)] <- ""
+
+#Generating specific labels heatmap
+MoDC_Wash_no_MouseLigands_Heatmap <-
+  pheatmap(
+    MoDC_Wash_no_MouseLigands,
+    scale = "row",
+    show_rownames = T,
+    show_colnames = T,
+    cluster_rows = T,
+    fontsize_col = 15,
+    cluster_cols =
+      MoDC_Wash_no_NaiveM4_heatmap$tree_col,
+    cutree_rows = 4,
+    cutree_cols  = 3,
+    clustering_distance_rows = "euclidean",
+    clustering_distance_cols = "euclidean",
+    treeheight_row = 0,
+    color =
+      rev(colorRampPalette(brewer.pal(10, "RdBu"))(256)),
+    border_color = NA,
+    cellwidth = 30,
+    fontsize_row =  4,
+    display_numbers = FALSE,
+    labels_row = labs.row,
+    annotation_col =
+      data.frame(
+        Group =
+          factor(c(rep(
+            c("6H_Treatment", "48H_Wash"),
+            each =
+              4
+          ) , rep("Naive", 3))),
+        row.names = c(
+          "MoDC_6H_M4",
+          "MoDC_6H_M1",
+          "MoDC_6H_M2",
+          "MoDC_6H_M3",
+          "MoDC_48Hwash_M4",
+          "MoDC_48Hwash_M3",
+          "MoDC_48Hwash_M1",
+          "MoDC_48Hwash_M2",
+          "Naive_MoDC_M3",
+          "Naive_MoDC_M1",
+          "Naive_MoDC_M2"
+        )
+      ),
+    annotation_colors = list(
+      Group =
+        c(
+          "6H_Treatment" = "#bf05fc",
+          "48H_Wash" = "#439c25",
+          "Naive" = "#0c7af7"
+        )
+    ),
+    annotation_legend = T
+  )
+
+
+MoDC_Wash_no_MouseLigands_Heatmap <- pheatmap.edit(MoDC_Wash_no_MouseLigands_Heatmap, annotations_title_x = -400)
+
+#Calculating scaled values of the data:
+MoDC_Wash_no_MouseLigands_Heatmap_scaled <- round(pheatmap.scale(MoDC_Wash_no_MouseLigands), 2)
+
+row.order = MoDC_Wash_no_MouseLigands_Heatmap$tree_row$order
+
+MoDC_Wash_no_MouseLigands_Heatmap_scaled <- MoDC_Wash_no_MouseLigands_Heatmap_scaled[row.order,General_col_order]
+
+write.csv(MoDC_Wash_no_MouseLigands_Heatmap_scaled, file = ".\\MoDC\\With_Wash\\Without_Naive_MoDC_M4_Sample\\Heatmaps\\Heatmap_DF_MoDC_no_NaiveM4_Ligands.csv")
+
+#PLOTTING
+MoDC_Wash_no_MouseLigands_Heatmap
+grid.text("Ligands", x=0.13, y=0.6, rot=90,gp=gpar(fontsize=20, col="black"))
+
+
+
+
+
+
+
+#RECEPTORS HEATMAP
+  #Data
+MoDC_Wash_no_MouseReceptors <- subset(List_MoDC_Wash_no_Naive_M4$Heatmap_df_LRT, rownames(List_MoDC_Wash_no_Naive_M4$Heatmap_df_LRT) %in% receptors_subset)
+  #Saving rownames
+#write.table(rownames(MoDC_Wash_no_MouseReceptors), ".\\MoDC\\With_Wash\\Without_Naive_MoDC_M4_Sample\\receptors_heatmap_subset.txt", row.names = FALSE, col.names = FALSE)
+
+#Creating general heatmap
+MoDC_Wash_no_MouseReceptors_Heatmap <-
+  pheatmap(
+    MoDC_Wash_no_MouseReceptors,
+    scale = "row",
+    show_rownames = T,
+    show_colnames = T,
+    fontsize_col = 15,
+    cluster_rows = T,
+    cluster_cols =
+      MoDC_Wash_no_NaiveM4_heatmap$tree_col,
+    cutree_rows = 6,
+    cutree_cols  = 3,
+    clustering_distance_rows = "euclidean",
+    clustering_distance_cols = "euclidean",
+    color =
+      rev(colorRampPalette(brewer.pal(10, "RdBu"))(256)),
+    treeheight_row = 0,
+    display_numbers = F,
+    border_color = NA,
+    cellwidth = 30,
+    annotation_col =
+      data.frame(
+        Group =
+          factor(c(rep(
+            c("6H_Treatment", "48H_Wash"),
+            each =
+              4
+          ) , rep("Naive", 3))),
+        row.names = c(
+          "MoDC_6H_M4",
+          "MoDC_6H_M1",
+          "MoDC_6H_M2",
+          "MoDC_6H_M3",
+          "MoDC_48Hwash_M4",
+          "MoDC_48Hwash_M3",
+          "MoDC_48Hwash_M1",
+          "MoDC_48Hwash_M2",
+          "Naive_MoDC_M3",
+          "Naive_MoDC_M1",
+          "Naive_MoDC_M2"
+        )
+      ),
+    annotation_colors = list(
+      Group =
+        c(
+          "6H_Treatment" = "#bf05fc",
+          "48H_Wash" = "#439c25",
+          "Naive" = "#0c7af7"
+        )
+    ),
+    annotation_legend = T
+  )
+
+MoDC_Wash_no_MouseReceptors_Heatmap <- pheatmap.edit(MoDC_Wash_no_MouseReceptors_Heatmap, annotations_title_x = -400)
+
+
+#Calculating scaled values of the data:
+MoDC_Wash_no_MouseReceptors_Heatmap_scaled <- round(pheatmap.scale(MoDC_Wash_no_MouseReceptors), 2)
+
+row.order = MoDC_Wash_no_MouseReceptors_Heatmap$tree_row$order
+
+MoDC_Wash_no_MouseReceptors_Heatmap_scaled <- MoDC_Wash_no_MouseReceptors_Heatmap_scaled[row.order,General_col_order]
+
+write.csv(MoDC_Wash_no_MouseReceptors_Heatmap_scaled, file = ".\\MoDC\\With_Wash\\Without_Naive_MoDC_M4_Sample\\Heatmaps\\Heatmap_DF_MoDC_no_NaiveM4_Receptors.csv")
+
+
+ #Specific chosen labels from specific clusters:
+genes_order_in_heatmap <- rownames(MoDC_Wash_no_MouseReceptors[MoDC_Wash_no_MouseReceptors_Heatmap$tree_row[["order"]],])
+  
+cutree_row_clusters<- sort(cutree(MoDC_Wash_no_MouseReceptors_Heatmap$tree_row, k=6))
+  
+cluster3 <- subset(cutree_row_clusters, cutree_row_clusters == 3)
+cluster3_genes <- names(cluster3)
+cluster3_genes_ordered <- genes_order_in_heatmap[genes_order_in_heatmap %in% cluster3_genes]
+
+cluster4 <- subset(cutree_row_clusters, cutree_row_clusters == 4)
+cluster4_genes <- names(cluster4)
+cluster4_genes_ordered <- genes_order_in_heatmap[genes_order_in_heatmap %in% cluster4_genes]
+
+#PLOTTING
+  #Using function "add.flag" to add arrows to the top and bottom gene labels of the chosen clusters in the heatmap
+add.flag(MoDC_Wash_no_MouseReceptors_Heatmap,
+         list.kept.labels = list(cluster3_genes_ordered,cluster4_genes_ordered),
+         repel.degree = 0,
+         upward.list = list(T,F))
+grid.text("Receptors", x=0.13, y=0.6, rot=90,gp=gpar(fontsize=20, col="black"))
+
+
+
+
+
+
+
+
+
+
+
+
+#Specific gene lists:
+
+#List of genes upregulated in 48H compared to 6H but upregulated in naive compared to 6H
+
+MoDC_48h_vs_6H <- List_MoDC_Wash_no_Naive_M4$Counts_res_list$`Treatment_48H_Wash _vs_ Treatment_6H`$deg_res_sig
+MoDC_48h_vs_6H_up <- subset(MoDC_48h_vs_6H, lgFC_Treatment_48H_Wash_vs_Treatment_6H > 0)
+
+MoDC_6H_vs_Ctrl <- List_MoDC_Wash_no_Naive_M4$Counts_res_list$`Treatment_6H _vs_ Control`$deg_res_sig
+MoDC_6H_vs_Ctrl_down <- subset(MoDC_6H_vs_Ctrl, lgFC_Treatment_6H_vs_Control < 0)
+
+library(ggvenn)
+
+ggvenn(list('MoDC_48h_vs_6H_up' = row.names(MoDC_48h_vs_6H_up), 'MoDC_6H_vs_Ctrl_down' = row.names(MoDC_6H_vs_Ctrl_down)), fill_color = c("#0073C2FF", "#CD534CFF"),stroke_size = 0.5, set_name_size = 4)
+ggsave(".\\MoDC\\With_Wash\\Without_Naive_MoDC_M4_Sample\\ggVen_MoDC_48h_vs_6H_up_VS_MoDC_6H_vs_Ctrl_down.png", width = 5, height = 5, dpi = 300 )
+#Obtaining gene names that are in MoDC_48h_vs_6H_up but not in the intersection between MoDC_48h_vs_6H_up and MoDC_6H_vs_Ctrl_down
+unique_MoDC_48h_vs_6H_up <- setdiff(row.names(MoDC_48h_vs_6H_up), intersect(row.names(MoDC_48h_vs_6H_up),row.names(MoDC_6H_vs_Ctrl_down)))
+
+unique_MoDC_48h_vs_6H_up <- MoDC_48h_vs_6H_up[unique_MoDC_48h_vs_6H_up,]
+
+write.csv(unique_MoDC_48h_vs_6H_up, file = ".\\MoDC\\With_Wash\\Without_Naive_MoDC_M4_Sample\\unique_MoDC_48h_vs_6H_up.csv")
+
+#Barplot with SD comparing Cxcr4 and Cx3cr1 between the three samples
+#Cxcr4
+Cxcr4_df <- as.data.frame(List_MoDC_Wash_no_Naive_M4$Heatmap_df_LRT[c('Cxcr4'), ])
+colnames(Cxcr4_df) <- "nm_count"
+Cxcr4_df <- tibble::rownames_to_column(Cxcr4_df, "Group")
+
+#Removing suffix of replicates : "_M1", "_M2", ...
+Cxcr4_df$Group <- sub("_M.$","",Cxcr4_df$Group)
+
+
+Cxcr4_summary_df <- data.frame(Group = c("MoDC_48Hwash", "MoDC_6H", "Naive_MoDC"), Mean_nm_counts = c(mean(subset(Cxcr4_df, Group == "MoDC_48Hwash")$nm_count), mean(subset(Cxcr4_df, Group == "MoDC_6H")$nm_count), mean(subset(Cxcr4_df, Group == "Naive_MoDC")$nm_count)) , SD = c(sd(subset(Cxcr4_df, Group == "MoDC_48Hwash")$nm_count), sd(subset(Cxcr4_df, Group == "MoDC_6H")$nm_count), sd(subset(Cxcr4_df, Group == "Naive_MoDC")$nm_count)))
+
+
+
+# anova test
+anova <- aov(nm_count ~ Group, data = Cxcr4_df)
+summary(anova)
+tukey <- TukeyHSD(anova)$Group
+print(tukey)
+
+# box plot with significance
+tukey_df = as.data.frame(tukey)
+
+#rownames to first column
+tukey_df <- tibble::rownames_to_column(tukey_df, "Comparison")
+
+arranger <- c("Naive_MoDC-MoDC_48Hwash",
+              "MoDC_6H-MoDC_48Hwash",
+              "Naive_MoDC-MoDC_6H")
+
+
+#rearrange rows by comparison 
+tukey_df_ordered<- tukey_df %>% arrange(match(Comparison, arranger))
+
+#add asterisk column:
+tukey_df_ordered<-tukey_df_ordered %>%
+  mutate(signif = case_when(
+    (tukey_df_ordered$`p adj` < 0.05 & tukey_df_ordered$`p adj` > 0.01) ~ "*",
+    (tukey_df_ordered$`p adj` < 0.01 & tukey_df_ordered$`p adj` > 0.001) ~ "**",
+    (tukey_df_ordered$`p adj` < 0.001) ~ "***",
+    (tukey_df_ordered$`p adj` > 0.05) ~ "NS")) 
+
+
+# Most basic error bar
+ggplot(Cxcr4_summary_df, aes(x=Group, y=Mean_nm_counts)) +
+    geom_bar(stat="identity", fill=c("darkgreen","purple","blue"), alpha=0.5,width = 0.5) + ylab("Cxcr4_Mean_nm_Expression") +
+    geom_errorbar( aes(x=Group, ymin=Mean_nm_counts-SD, ymax=Mean_nm_counts+SD), width=0.2, colour="black", alpha=0.5, size=0.5) +
+  geom_signif(comparisons = list(c("Naive_MoDC","MoDC_48Hwash"),
+              c("MoDC_6H", "MoDC_48Hwash"),
+              c("Naive_MoDC","MoDC_6H")),
+              map_signif_level = FALSE, y_position = c(10.6,9,8.5), 
+              tip_length = 0.02, vjust = 0,annotations = tukey_df_ordered$signif) + theme_classic()
+ggsave(".\\MoDC\\With_Wash\\Without_Naive_MoDC_M4_Sample\\Cxcr4_Expression_MoDC_With_Wash_-Naive4.png", width = 5, height = 5, dpi = 300 )
+
+############################
+
+#Cx3cr1
+
+Cx3cr1_df <- as.data.frame(List_MoDC_Wash_no_Naive_M4$Heatmap_df_LRT[c('Cx3cr1'), ])
+colnames(Cx3cr1_df) <- "nm_count"
+Cx3cr1_df <- tibble::rownames_to_column(Cx3cr1_df, "Group")
+
+#Removing suffix of replicates : "_M1", "_M2", ...
+Cx3cr1_df$Group <- sub("_M.$","",Cx3cr1_df$Group)
+
+
+Cx3cr1_summary_df <- data.frame(Group = c("MoDC_48Hwash", "MoDC_6H", "Naive_MoDC"), Mean_nm_counts = c(mean(subset(Cx3cr1_df, Group == "MoDC_48Hwash")$nm_count), mean(subset(Cx3cr1_df, Group == "MoDC_6H")$nm_count), mean(subset(Cx3cr1_df, Group == "Naive_MoDC")$nm_count)) , SD = c(sd(subset(Cx3cr1_df, Group == "MoDC_48Hwash")$nm_count), sd(subset(Cx3cr1_df, Group == "MoDC_6H")$nm_count), sd(subset(Cx3cr1_df, Group == "Naive_MoDC")$nm_count)))
+
+
+
+# anova test
+anova <- aov(nm_count ~ Group, data = Cx3cr1_df)
+summary(anova)
+tukey <- TukeyHSD(anova)$Group
+print(tukey)
+
+# box plot with significance
+tukey_df = as.data.frame(tukey)
+
+#rownames to first column
+tukey_df <- tibble::rownames_to_column(tukey_df, "Comparison")
+
+arranger <- c("Naive_MoDC-MoDC_48Hwash",
+              "MoDC_6H-MoDC_48Hwash",
+              "Naive_MoDC-MoDC_6H")
+
+
+#rearrange rows by comparison 
+tukey_df_ordered<- tukey_df %>% arrange(match(Comparison, arranger))
+
+#add asterisk column:
+tukey_df_ordered<-tukey_df_ordered %>%
+  mutate(signif = case_when(
+    (tukey_df_ordered$`p adj` < 0.05 & tukey_df_ordered$`p adj` > 0.01) ~ "*",
+    (tukey_df_ordered$`p adj` < 0.01 & tukey_df_ordered$`p adj` > 0.001) ~ "**",
+    (tukey_df_ordered$`p adj` < 0.001) ~ "***",
+    (tukey_df_ordered$`p adj` > 0.05) ~ "NS")) 
+
+
+# Most basic error bar
+ggplot(Cx3cr1_summary_df, aes(x=Group, y=Mean_nm_counts)) +
+    geom_bar(stat="identity", fill=c("darkgreen","purple","blue"), alpha=0.5,width = 0.5) + ylab("Cx3cr1_Mean_nm_Expression") +
+    geom_errorbar( aes(x=Group, ymin=Mean_nm_counts-SD, ymax=Mean_nm_counts+SD), width=0.2, colour="black", alpha=0.5, size=0.5) +
+  geom_signif(comparisons = list(c("Naive_MoDC","MoDC_48Hwash"),
+              c("MoDC_6H", "MoDC_48Hwash"),
+              c("Naive_MoDC","MoDC_6H")),
+              map_signif_level = FALSE, y_position = c(10.6,9,8.5), 
+              tip_length = 0.02, vjust = 0,annotations = tukey_df_ordered$signif) + theme_classic()
+ggsave(".\\MoDC\\With_Wash\\Without_Naive_MoDC_M4_Sample\\Cx3cr1_Expression_MoDC_With_Wash_-Naive4.png", width = 5, height = 5, dpi = 300 )
+
+```
+
+
+
+
+```{r}
+########################## Creating Heatmaps and Further analysis ##############################################
+
+######################### #MoDC Experiment vs CD11c Experiment - ' List_MoDC_CD11c ' ########
+
+List_MoDC_CD11c <- readRDS(".\\MoDC_CD11c\\MoDC_CD11c.rds")
+List_MoDC_CD11c_NoWash <- readRDS(".\\MoDC_CD11c\\Without_Wash\\MoDC_CD11c_NoWash.rds")
+List_MoDC_CD11c <- List_MoDC_CD11c_NoWash #NO WASH
+
+#Wald Heatmap
+deg_res_sigs_Wald <- List_MoDC_CD11c$Counts_res_list$`MoDC_Treatment_6H _vs_ cDC_Treatment_6H`$deg_res_sig
+Heatmap_df_Wald <- deg_res_sigs_Wald[order(deg_res_sigs_Wald$lgFC_MoDC_Treatment_6H_vs_cDC_Treatment_6H, decreasing = TRUE),]
+#Obtaining normalized counts
+nm_counts_deseq_Wald <- rlog(List_MoDC_CD11c$dds_Wald, blind=FALSE)
+#Filtering to only genes from the DEG sigs
+Heatmap_df_Wald <- assay(nm_counts_deseq_Wald)[rownames(Heatmap_df_Wald), ]
+
+#HEATMAPS
+#General HEATMAP of EVERYTHING
+MoDC_CD11c_Heatmap <- pheatmap(
+  List_MoDC_CD11c$Heatmap_df_LRT,
+  scale = "row",
+  show_rownames = F,
+  show_colnames = T,
+  cluster_rows = T,
+  cluster_cols = T,
+  cutree_cols  = 3,
+  cutree_rows = 6,
+  clustering_distance_rows = "euclidean",
+  clustering_distance_cols = "euclidean",
+  treeheight_row = 0,
+  color =
+    rev(colorRampPalette(brewer.pal(10, "RdBu"))(256)),
+  cellwidth = 20,
+  cellheight = 0.1,
+  display_numbers = FALSE,
+  border_color = NA,
+  annotation_col =
+    data.frame(
+      Group =
+        factor(c(
+          rep("CD11c_Treatment_6H", 4),
+          rep("CD11c_Control", 4),
+          rep("MoDC_Treatment_6H", 4),
+          rep("MoDC_Control", 4),
+          rep("MoDC_Treatment_48H_Wash", 3)
+        )),
+      row.names = c(
+        "CD11c_6H_M2",
+        "CD11c_6H_M4",
+        "CD11c_6H_M1",
+        "CD11c_6H_M3",
+        "Naive_CD11c_M4",
+        "Naive_CD11c_M3",
+        "Naive_CD11c_M1",
+        "Naive_CD11c_M2",
+        "MoDC_6H_M4",
+        "MoDC_6H_M1",
+        "MoDC_6H_M2" ,
+        "MoDC_6H_M3",
+        "Naive_MoDC_M3",
+        "MoDC_48Hwash_M4",
+        "MoDC_48Hwash_M3",
+        "MoDC_48Hwash_M1",
+        "MoDC_48Hwash_M2",
+        "Naive_MoDC_M1",
+        "Naive_MoDC_M2"
+      )
+    ),
+  annotation_colors = list(
+    Group = c(
+      "CD11c_Treatment_6H" = "darkorange",
+      "MoDC_Treatment_48H_Wash" = "darkgreen",
+      "MoDC_Treatment_6H" = "purple",
+      "CD11c_Control" = "darkcyan",
+      "MoDC_Control" = "blue"
+    )
+  ),
+  annotation_legend = T
+)
+
+#PDF: 10 10 landscape
+
+#factor(colnames( List_MoDC_CD11c$Heatmap_df_LRT[,General_col_order]))
+General_col_order <- MoDC_CD11c_Heatmap$tree_col$order
+
+
+#LIGANDS HEATMAP
+  #Data
+#MoDC_CD11c_MouseLigands <- subset(List_MoDC_CD11c$Heatmap_df_LRT, rownames(List_MoDC_CD11c$Heatmap_df_LRT) %in% ligands_subset)
+MoDC_CD11c_MouseLigands <- subset(Heatmap_df_Wald, rownames(Heatmap_df_Wald) %in% ligands_subset)
+
+#Setting rownames that are not wanted as "", while keeping the Ligands_To_Show rownames
+labs.row <- rownames(MoDC_CD11c_MouseLigands)
+Ligands_To_Show <- c("Tgfb3", "Il23a", "Il17a", "Icosl", "Tnfrsf11b","Cd80", "Cd86", "Ifnb1", "Il2", "Il17f", "Osm", "Xcl1", "Cxcl10", "Tnfsf4", "Tnfsf10", "Il27", "Csf1", "Tnfsf13b", "Tnfsf12") 
+labs.row[!(labs.row %in% Ligands_To_Show)] <- ""
+
+#"Cxcl10" and "Tnfsf13b" do not exist in MoDC_CD11c_MouseLigands
+
+#Ligands_To_Show[!(Ligands_To_Show %in% c(labs.row[labs.row != ""]))]
+
+
+MoDC_CD11c_Ligands_Heatmap_6H <-
+  pheatmap::pheatmap(
+    MoDC_CD11c_MouseLigands[, colnames(MoDC_CD11c_MouseLigands) %in%
+                              c(
+                                "CD11c_6H_M2",
+                                "CD11c_6H_M4",
+                                "CD11c_6H_M1",
+                                "CD11c_6H_M3",
+                                "MoDC_6H_M4",
+                                "MoDC_6H_M1",
+                                "MoDC_6H_M2" ,
+                                "MoDC_6H_M3"
+                              )],
+    scale = "row",
+    show_rownames = T,
+    fontsize_row = 5,#10
+    fontsize_col = 30,
+    show_colnames = T,
+    cluster_rows = T,
+    cluster_cols = T,
+    cutree_cols  = 2,
+    cutree_rows = 2, #5
+    clustering_distance_rows = "euclidean",
+    clustering_distance_cols = "euclidean",
+    treeheight_row = 0,
+    color =
+      rev(colorRampPalette(brewer.pal(10, "RdBu"))(256)),
+    display_numbers = F,
+    fontsize_number = 1,
+    cellwidth = 60,
+    cellheight = 2,
+    border_color = NA,
+    annotation_col =
+      data.frame(
+        Group =
+          factor(c(
+            rep("CD11c_Treatment_6H", 4),
+            rep("MoDC_Treatment_6H", 4)
+          )),
+        row.names = c(
+          "CD11c_6H_M2",
+          "CD11c_6H_M4",
+          "CD11c_6H_M1",
+          "CD11c_6H_M3",
+          "MoDC_6H_M4",
+          "MoDC_6H_M1",
+          "MoDC_6H_M2" ,
+          "MoDC_6H_M3"
+        )
+      ),
+    annotation_colors = list(
+      Group = c(
+        "CD11c_Treatment_6H" = "darkorange",
+        "MoDC_Treatment_6H" = "purple"
+      )
+    ),
+    annotation_legend = T
+  )
+
+
+#source("C:\\Kfir_Thesis_Asaf_Madi\\Project_2 - BulkRNAseq\\Bulk_RNA_Functions.R")
+
+MoDC_CD11c_Ligands_Heatmap_6H <- pheatmap.edit(MoDC_CD11c_Ligands_Heatmap_6H, annotations_title_x = -550)
+
+
+
+
+
+#Calculating scaled values of the data:
+MoDC_CD11c_Ligands_Heatmap_scaled <-
+  round(pheatmap.scale(MoDC_CD11c_MouseLigands[, colnames(MoDC_CD11c_MouseLigands) %in% c(
+    "CD11c_6H_M2",
+    "CD11c_6H_M4",
+    "CD11c_6H_M1",
+    "CD11c_6H_M3",
+    "MoDC_6H_M4",
+    "MoDC_6H_M1",
+    "MoDC_6H_M2" ,
+    "MoDC_6H_M3"
+  )]), 2)
+
+row.order = MoDC_CD11c_Ligands_Heatmap_6H$tree_row$order
+
+MoDC_CD11c_Ligands_Heatmap_scaled <- MoDC_CD11c_Ligands_Heatmap_scaled[row.order, MoDC_CD11c_Ligands_Heatmap_6H$tree_col$order]
+
+write.csv(MoDC_CD11c_Ligands_Heatmap_scaled, file = ".\\MoDC_CD11c\\Without_Wash\\Heatmaps\\Heatmap_DF_MoDC_CD11c_Ligands.csv")
+
+
+
+#PLOTTING
+  #Using function "add.flag.specific" to add arrows to the top and bottom gene labels of the chosen clusters in the heatmap
+
+
+add.flag.specific(
+  MoDC_CD11c_Ligands_Heatmap_6H,
+  kept.labels = Ligands_To_Show ,
+  repel.degree = 1,
+  shift_vector = c(
+    0.01,
+    0.01,
+    0.01,
+    0.01,
+    0.01,
+    0.01,
+    0.01,
+    0.01,
+    0.01,
+    -0.01,
+    0.01,
+    -0.01,
+    0.01,
+    -0.01,
+    -0.02,
+    -0.01,
+    0.01,
+    0.01,
+    0.01
+  )
+)
+grid.text("Ligands", x=0.08, y=0.6, rot=90,gp=gpar(fontsize=30, col="black")) #Landscape 12 12
+
+
+#DEG MoDC_6H vs CD11c_6H dataframe
+#MoDC_6H_VS_CD11c_6H <- as.data.frame(List_MoDC_CD11c_MoDC_6HvsCD11c_6H$`MoDC_Treatment_6H _vs_ CD11c_Treatment_6H`$deg_res_sig)
+
+#MoDC_6H_VS_CD11c_6H_ligands <- subset(MoDC_6H_VS_CD11c_6H, row.names(MoDC_6H_VS_CD11c_6H) %in% ligands_subset)
+
+#write.csv(MoDC_6H_VS_CD11c_6H_ligands, ".\\MoDC_CD11c\\Specific_Comparisons\\DEG_MoDC_CD11c_--MoDC_6H_Versus_CD11c_6H--_padj_lt_0.05_LIGANDS.csv")
+
+
+
+
+
+
+#LIGANDS With Naive HEATMAP
+  #Data
+MoDC_CD11c_MouseLigands <- subset(List_MoDC_CD11c$Heatmap_df_LRT, rownames(List_MoDC_CD11c$Heatmap_df_LRT) %in% ligands_subset)
+
+#Setting rownames that are not wanted as "", while keeping the Ligands_To_Show rownames
+labs.row <- rownames(MoDC_CD11c_MouseLigands)
+Ligands_To_Show <- c("Tgfb3", "Il23a", "Il17a", "Icosl", "Tnfrsf11b","Cd80", "Cd86", "Ifnb1", "Il2", "Il17f", "Osm", "Xcl1", "Cxcl10", "Tnfsf4", "Tnfsf10", "Il27", "Csf1", "Tnfsf13b", "Tnfsf12")
+labs.row[!(labs.row %in% Ligands_To_Show)] <- ""
+
+#Ligands_To_Show[!(Ligands_To_Show %in% c(labs.row[labs.row != ""]))]
+MoDC_CD11c_MouseLigands_Naive_6H <- MoDC_CD11c_MouseLigands[,colnames(MoDC_CD11c_MouseLigands) %in% c("CD11c_6H_M2","CD11c_6H_M4", "CD11c_6H_M1", "CD11c_6H_M3","MoDC_6H_M4","MoDC_6H_M1", "MoDC_6H_M2" , "MoDC_6H_M3", "Naive_MoDC_M1","Naive_MoDC_M2" ,"Naive_MoDC_M3","Naive_CD11c_M1", "Naive_CD11c_M2","Naive_CD11c_M3","Naive_CD11c_M4")]
+
+MoDC_CD11c_Ligands_Heatmap_6H_Naive <-
+  pheatmap::pheatmap(
+    MoDC_CD11c_MouseLigands[, colnames(MoDC_CD11c_MouseLigands) %in% c(
+      "CD11c_6H_M2",
+      "CD11c_6H_M4",
+      "CD11c_6H_M1",
+      "CD11c_6H_M3",
+      "MoDC_6H_M4",
+      "MoDC_6H_M1",
+      "MoDC_6H_M2" ,
+      "MoDC_6H_M3",
+      "Naive_MoDC_M1",
+      "Naive_MoDC_M2" ,
+      "Naive_MoDC_M3",
+      "Naive_CD11c_M1",
+      "Naive_CD11c_M2",
+      "Naive_CD11c_M3",
+      "Naive_CD11c_M4"
+    )],
+    scale = "row",
+    show_rownames = T,
+    fontsize_row = 10,
+    fontsize_col = 30,
+    show_colnames = T,
+    cluster_rows = T,
+    cluster_cols = T,
+    cutree_cols  = 4,
+    cutree_rows = 6,
+    clustering_distance_rows = "euclidean",
+    clustering_distance_cols = "euclidean",
+    treeheight_row = 0,
+    color =
+      rev(colorRampPalette(brewer.pal(10, "RdBu"))(256)),
+    display_numbers = F,
+    fontsize_number = 1,
+    cellwidth = 30,
+    cellheight = 2.1,
+    border_color = NA,
+    annotation_col =
+      data.frame(
+        Group =
+          factor(c(
+            rep("CD11c_Treatment_6H", 4),
+            rep("MoDC_Treatment_6H", 4),
+            rep("MoDC_Naive", 3),
+            rep("CD11c_Naive", 4)
+          )),
+        row.names = c(
+          "CD11c_6H_M2",
+          "CD11c_6H_M4",
+          "CD11c_6H_M1",
+          "CD11c_6H_M3",
+          "MoDC_6H_M4",
+          "MoDC_6H_M1",
+          "MoDC_6H_M2" ,
+          "MoDC_6H_M3",
+          "Naive_MoDC_M1",
+          "Naive_MoDC_M2",
+          "Naive_MoDC_M3",
+          "Naive_CD11c_M1",
+          "Naive_CD11c_M2",
+          "Naive_CD11c_M3",
+          "Naive_CD11c_M4"
+        )
+      ),
+    annotation_colors = list(
+      Group = c(
+        "CD11c_Treatment_6H" = "darkorange",
+        "MoDC_Treatment_6H" = "purple",
+        "MoDC_Naive" = "blue",
+        "CD11c_Naive" = "darkcyan"
+      )
+    ),
+    annotation_legend = T
+  )
+
+MoDC_CD11c_Ligands_Heatmap_6H_Naive <- pheatmap.edit(MoDC_CD11c_Ligands_Heatmap_6H_Naive, annotations_title_x = -525)
+
+ #Specific chosen labels from specific clusters:
+genes_order_in_heatmap <- rownames(MoDC_CD11c_MouseLigands_Naive_6H[MoDC_CD11c_Ligands_Heatmap_6H_Naive$tree_row[["order"]],])
+  
+cutree_row_clusters<- sort(cutree(MoDC_CD11c_Ligands_Heatmap_6H_Naive$tree_row, k=6)) #6
+  
+cluster2 <- subset(cutree_row_clusters, cutree_row_clusters == 2) #3
+cluster2_genes <- names(cluster2)
+cluster2_genes_ordered <- genes_order_in_heatmap[genes_order_in_heatmap %in% cluster2_genes]
+
+#PLOTTING
+  #Using function "add.flag" to add arrows to the top and bottom gene labels of the chosen clusters in the heatmap
+add.flag(MoDC_CD11c_Ligands_Heatmap_6H_Naive,
+         list.kept.labels = list(cluster2_genes_ordered),
+         repel.degree = 0,
+         upward.list = list(T))
+grid.text("Ligands", x=0.07, y=0.6, rot=90,gp=gpar(fontsize=30, col="black")) #Landscape 12 12
+
+
+
+
+
+#Calculating scaled values of the data:
+MoDC_CD11c_Naive_Ligands_Heatmap_scaled <-
+  round(pheatmap.scale(MoDC_CD11c_MouseLigands_Naive_6H), 2)
+
+row.order = MoDC_CD11c_Ligands_Heatmap_6H_Naive$tree_row$order
+
+MoDC_CD11c_Naive_Ligands_Heatmap_scaled <- MoDC_CD11c_Naive_Ligands_Heatmap_scaled[row.order, MoDC_CD11c_Ligands_Heatmap_6H_Naive$tree_col$order]
+
+write.csv(MoDC_CD11c_Naive_Ligands_Heatmap_scaled, file = ".\\MoDC_CD11c\\Without_Wash\\Heatmaps\\Heatmap_DF_MoDC_CD11c_Naive_Ligands.csv")
+
+###########SPECIFIC LIGANDS
+#Manually retrieved genes from the cluster where the expression in MoDC Naive is lower than MoDC_6H:
+Ligands_List_OF_INTEREST <- c("Calm1","Nppc","C3","Itgb1","Tnc","Adam17","Jag1","Cxcl16","Serpine1","Timp1","Psen1","Arf1","Mmp13","Alcam","Col5a3","Fbn1","Penk","Thbs4","Artn")
+
+MoDC_CD11c_Ligands_Heatmap_6H_Naive <-
+  pheatmap::pheatmap(
+    MoDC_CD11c_MouseLigands[, colnames(MoDC_CD11c_MouseLigands) %in% c(
+      "CD11c_6H_M2",
+      "CD11c_6H_M4",
+      "CD11c_6H_M1",
+      "CD11c_6H_M3",
+      "MoDC_6H_M4",
+      "MoDC_6H_M1",
+      "MoDC_6H_M2" ,
+      "MoDC_6H_M3",
+      "Naive_MoDC_M1",
+      "Naive_MoDC_M2" ,
+      "Naive_MoDC_M3",
+      "Naive_CD11c_M1",
+      "Naive_CD11c_M2",
+      "Naive_CD11c_M3",
+      "Naive_CD11c_M4"
+    )],
+    scale = "row",
+    show_rownames = T,
+    #labels_row = labs.row,
+    fontsize_row = 10,
+    fontsize_col = 30,
+    show_colnames = T,
+    cluster_rows = T,
+    cluster_cols = T,
+    cutree_cols  = 4,
+    cutree_rows = 6, 
+    clustering_distance_rows = "euclidean",
+    clustering_distance_cols = "euclidean",
+    treeheight_row = 0,
+    color =
+      rev(colorRampPalette(brewer.pal(10, "RdBu"))(256)),
+    display_numbers = F,
+    fontsize_number = 1,
+    cellwidth = 30,
+    cellheight = 2.1,
+    border_color = NA,
+    annotation_col =
+      data.frame(
+        Group =
+          factor(c(
+            rep("CD11c_Treatment_6H", 4),
+            rep("MoDC_Treatment_6H", 4),
+            rep("MoDC_Naive", 3),
+            rep("CD11c_Naive", 4)
+          )),
+        row.names = c(
+          "CD11c_6H_M2",
+          "CD11c_6H_M4",
+          "CD11c_6H_M1",
+          "CD11c_6H_M3",
+          "MoDC_6H_M4",
+          "MoDC_6H_M1",
+          "MoDC_6H_M2" ,
+          "MoDC_6H_M3",
+          "Naive_MoDC_M1",
+          "Naive_MoDC_M2",
+          "Naive_MoDC_M3",
+          "Naive_CD11c_M1",
+          "Naive_CD11c_M2",
+          "Naive_CD11c_M3",
+          "Naive_CD11c_M4"
+        )
+      ),
+    annotation_colors = list(
+      Group = c(
+        "CD11c_Treatment_6H" = "darkorange",
+        "MoDC_Treatment_6H" = "purple",
+        "MoDC_Naive" = "blue",
+        "CD11c_Naive" = "darkcyan"
+      )
+    ),
+    annotation_legend = T
+  )
+
+MoDC_CD11c_Ligands_Heatmap_6H_Naive <- pheatmap.edit(MoDC_CD11c_Ligands_Heatmap_6H_Naive, annotations_title_x = -525)
+
+
+add.flag.specific(MoDC_CD11c_Ligands_Heatmap_6H_Naive, kept.labels = Ligands_List_OF_INTEREST, repel.degree = 0, shift_vector = c(0.09,0.08,0.07,0.06,0.05,0.04,0.03,0.02,0.01,0,-0.01,-0.02,-0.03,-0.04,-0.05,-0.06,-0.07,-0.08,-0.09))
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#Specific gene lists:
+
+#List of genes upregulated in 6H CD11c vs naive and upregulated in MoDC 6H vs naive
+
+CD11c_6H_vs_Ctrl <- List_MoDC_CD11c_CD11cvsControl$`CD11c_Treatment_6H _vs_ CD11c_Control`$deg_res_sig
+CD11c_6H_vs_Ctrl_up <- subset(CD11c_6H_vs_Ctrl, lgFC_CD11c_Treatment_6H_vs_CD11c_Control > 0)
+
+MoDC_6H_vs_Ctrl <- List_MoDC_CD11c_MoDCvsControl$`MoDC_Treatment_6H _vs_ MoDC_Control`$deg_res_sig
+MoDC_6H_vs_Ctrl_up <- subset(MoDC_6H_vs_Ctrl, lgFC_MoDC_Treatment_6H_vs_MoDC_Control > 0)
+
+
+
+ggvenn(list('CD11c_6H_vs_Ctrl_up' = row.names(CD11c_6H_vs_Ctrl_up), 'MoDC_6H_vs_Ctrl_up' = row.names(MoDC_6H_vs_Ctrl_up)), fill_color = c("#0073C2FF", "#CD534CFF"),set_name_color = "black",text_color = "black",stroke_size = 0.5, set_name_size = 4)
+
+ggsave(".\\MoDC_CD11c\\ggVen_CD11c_6H_vs_Ctrl_up_VS_MoDC_6H_vs_Ctrl_up.png", width = 5, height = 5, dpi = 300)
+
+
+#Unique CD11c_6H_vs_Ctrl_up
+unique_CD11c_6H_vs_Ctrl_up <- setdiff(row.names(CD11c_6H_vs_Ctrl_up), intersect(row.names(CD11c_6H_vs_Ctrl_up),row.names(MoDC_6H_vs_Ctrl_up)))
+
+unique_CD11c_6H_vs_Ctrl_up <- CD11c_6H_vs_Ctrl_up[unique_CD11c_6H_vs_Ctrl_up,]
+
+write.csv(unique_CD11c_6H_vs_Ctrl_up, file = ".\\MoDC_CD11c\\unique_CD11c_6H_vs_Ctrl_up.csv")
+
+#Unique MoDC_6H_vs_Ctrl_up
+unique_MoDC_6H_vs_Ctrl_up <- setdiff(row.names(MoDC_6H_vs_Ctrl_up), intersect(row.names(MoDC_6H_vs_Ctrl_up),row.names(CD11c_6H_vs_Ctrl_up)))
+
+unique_MoDC_6H_vs_Ctrl_up <- MoDC_6H_vs_Ctrl_up[unique_MoDC_6H_vs_Ctrl_up,]
+
+write.csv(unique_MoDC_6H_vs_Ctrl_up, file = ".\\MoDC_CD11c\\unique_MoDC_6H_vs_Ctrl_up.csv")
+
+
+#Common 
+Common <- intersect(row.names(MoDC_6H_vs_Ctrl_up),row.names(CD11c_6H_vs_Ctrl_up))
+
+common_MoDC_6H_vs_Ctrl_up <- MoDC_6H_vs_Ctrl_up[Common,]
+common_CD11c_6H_vs_Ctrl_up <- CD11c_6H_vs_Ctrl_up[Common,]
+
+common_merged <- merge(as.data.frame(subset(common_MoDC_6H_vs_Ctrl_up, select = 2)), as.data.frame(subset(common_CD11c_6H_vs_Ctrl_up, select = 2)), by = 'row.names')
+
+#First column (genes) to rownames
+common_merged <- data.frame(common_merged[,-1], row.names=common_merged[,1])
+
+
+write.csv(common_merged, file = ".\\MoDC_CD11c\\common_merged_MoDC_6H_VS_CD11_6H.csv")
+
+
+
+
+#MoDC_6H vs Naive DEG Ligands
+MoDCvsNaive_deg_Ligands <- subset(as.data.frame(List_MoDC_CD11c_MoDCvsControl$`MoDC_Treatment_6H _vs_ MoDC_Control`$deg_res_sig), row.names(List_MoDC_CD11c_MoDCvsControl$`MoDC_Treatment_6H _vs_ MoDC_Control`$deg_res_sig) %in% ligands_subset)
+write.csv(MoDCvsNaive_deg_Ligands, ".\\MoDC_CD11c\\DEG_MoDC_CD11c_--MoDC_Treatment_6H_Versus_MoDC_Control--_padj_lt_0.05_LIGANDS.csv")
+
+#CD11_6H vs Naive DEG Ligands
+
+CD11vsNaive_deg_Ligands <- subset(as.data.frame(List_MoDC_CD11c_CD11cvsControl$`CD11c_Treatment_6H _vs_ CD11c_Control`$deg_res_sig), row.names(List_MoDC_CD11c_CD11cvsControl$`CD11c_Treatment_6H _vs_ CD11c_Control`$deg_res_sig) %in% ligands_subset)
+write.csv(CD11vsNaive_deg_Ligands, ".\\MoDC_CD11c\\DEG_MoDC_CD11c_--CD11c_Treatment_6H_Versus_CD11c_Control--_padj_lt_0.05_LIGANDS.csv")
+
+                                        
+```
+
+
+```{r}
+########################## Creating Heatmaps and Further analysis ##############################################
+######################### T cells - 'List_T_Cells' #############################################################
+
+
+List_T_Cells <- readRDS("C:\\Kfir_Thesis_Asaf_Madi\\Project_2 - BulkRNAseq\\T_Cells\\In_Vitro_T_Cells.rds")
+
+write.csv(List_T_Cells$Raw_Counts, "C:\\Kfir_Thesis_Asaf_Madi\\Project_2 - BulkRNAseq\\T_Cells\\T_Cells_Raw_Data.csv")
+T_Cells_Normalized_Data <- as.data.frame(assay(List_T_Cells$Counts_Normalized_data$data))
+write.csv(T_Cells_Normalized_Data, "C:\\Kfir_Thesis_Asaf_Madi\\Project_2 - BulkRNAseq\\T_Cells\\T_Cells_Normalized_Data.csv")
+
+#HEATMAPS
+#General HEATMAP of EVERYTHING 
+T_Cells_heatmap <- pheatmap(
+  List_T_Cells$Heatmap_df_LRT,
+  scale = "row",
+  display_numbers = FALSE,
+  cluster_rows = T,
+  treeheight_row = 0,
+  cutree_cols  = 3,
+  cutree_rows = 6,
+  clustering_distance_rows = "euclidean",
+  clustering_distance_cols = "euclidean",
+  cluster_cols = T,
+  border_color = NA,
+  show_rownames = F,
+  show_colnames = T,
+  color = rev(colorRampPalette(brewer.pal(10, "RdBu"))(256)),
+  cellwidth = 20,
+  cellheight = 0.1
+)
+
+General_col_order <- T_Cells_heatmap$tree_col$order
+
+#Add legend_title to legend grob
+T_Cells_heatmap$gtable$grobs[[5]] <- addGrob(T_Cells_heatmap$gtable$grobs[[5]],legend_title)
+
+
+#Calculating scaled values of the data:
+List_T_Cells_heatmap_scaled <- round(pheatmap.scale(List_T_Cells$Heatmap_df_LRT), 2)
+
+
+
+#Heatmap of genes from DEG between naive and CD3_28
+gene_names_Naive_Vs_CD3 <- row.names(List_T_Cells$Counts_res_list$`Control _vs_ CD3_CD28`$deg_res_sig)
+
+Heatmap_Naive_VS_CD3 <- assay(List_T_Cells$Counts_Normalized_data$data)[gene_names_Naive_Vs_CD3, ]
+
+
+T_Naive_CD3_heatmap <- pheatmap(
+  Heatmap_Naive_VS_CD3,
+  scale = "row",
+  display_numbers = FALSE,
+  cluster_rows = T,
+  treeheight_row = 0,
+  cluster_cols = T,
+  border_color = NA,
+  show_rownames = F,
+  show_colnames = T,
+  color = rev(colorRampPalette(brewer.pal(10, "RdBu"))(256)),
+  cutree_cols  = 3,
+  cutree_rows = 6,
+  clustering_distance_rows = "euclidean",
+  clustering_distance_cols = "euclidean",
+  cellwidth = 20,
+  cellheight = 0.1
+)
+
+#Add legend_title to legend grob
+T_Naive_CD3_heatmap$gtable$grobs[[5]] <- addGrob(T_Naive_CD3_heatmap$gtable$grobs[[5]],legend_title)
+
+
+#Calculating scaled values of the data:
+Heatmap_Naive_VS_CD3_scaled <- round(pheatmap.scale(Heatmap_Naive_VS_CD3), 2)
+
+```
+
+
+```{r}
+
+########################## Creating Heatmaps and Further analysis ##############################################
+######################### T cells - 'List_T_Cells_Only_Treatments' #############################################################
+
+
+List_T_Cells_Only_Treatments <- readRDS(".\\T_Cells\\Priming_Licensing_Only\\T_Cells_Treatments_Only.rds")
+
+
+#General HEATMAP of EVERYTHING
+T_Cells_Only_treatments_Heatmap <-
+  pheatmap::pheatmap(
+    List_T_Cells_Only_Treatments$Heatmap_df_LRT,
+    scale = "row",
+    cluster_rows = T,
+    treeheight_row = 0,
+    cluster_cols = T,
+    show_rownames = F,
+    show_colnames = T,
+    fontsize_col = 20,
+    cutree_cols  = 4,
+    cutree_rows = 11,
+    clustering_distance_rows =
+      "euclidean",
+    clustering_distance_cols = "euclidean",
+    color = rev(colorRampPalette(brewer.pal(10, "RdBu"))(256)),
+    border_color = NA,
+    display_numbers = F,
+    fontsize_number = 1,
+    cellwidth = 20,
+    cellheight = 0.1,
+    annotation_col =
+      data.frame(
+        Group =  factor(c(rep(
+          c("PMoDC", "PCD11c",
+            "PCD11_LCD11", "PCD11_LMoDC"),
+          each =
+            4
+        ))),
+        row.names =
+          c(
+            "T_PimedMoDC_1",
+            "T_PimedMoDC_2",
+            "T_PimedMoDC_3",
+            "T_PimedMoDC_4",
+            "T_PimedCD11c_2",
+            "T_PimedCD11c_4",
+            "T_PimedCD11c_1",
+            "T_PimedCD11c_3",
+            "T_PCD11_LCD11_3",
+            "T_PCD11_LCD11_4",
+            "T_PCD11_LCD11_1",
+            "T_PCD11_LCD11_2",
+            "T_PCD11_LMoDC_3",
+            "T_PCD11_LMoDC_2",
+            "T_PCD11_LMoDC_1",
+            "T_PCD11_LMoDC_4"
+          )
+      ),
+    annotation_colors = list(
+      Group = c(
+        "PMoDC" = "brown",
+        "PCD11c" = "black",
+        "PCD11_LCD11" = "#0c7af7",
+        "PCD11_LMoDC" = "pink"
+      )
+    ),
+    annotation_legend = T
+  )
+
+General_col_order <- T_Cells_Only_treatments_Heatmap$tree_col$order
+
+T_Cells_Only_treatments_Heatmap <- pheatmap.edit(T_Cells_Only_treatments_Heatmap, annotations_title_x = -400)
+
+
+
+T_Cells_Only_treatments_Heatmap
+
+
+
+#Calculating scaled values of the data:
+T_Cells_Only_Treatments_Heatmap_scaled <- round(pheatmap.scale(List_T_Cells_Only_Treatments$Heatmap_df_LRT), 2)
+
+row.order = T_Cells_Only_treatments_Heatmap$tree_row$order
+
+T_Cells_Only_Treatments_Heatmap_scaled <- T_Cells_Only_Treatments_Heatmap_scaled[row.order,General_col_order]
+
+write.csv(T_Cells_Only_Treatments_Heatmap_scaled, file = ".\\T_Cells\\Only_Treatments\\Heatmaps\\Heatmap_DF_T_Cells_Only_Treatments_ALL.csv")
+
+
+
+
+
+#TFs (TRANSCRIPTION FACTORS) HEATMAP
+
+  #Data
+Tcells_OnlyTreatments_MouseTFs <- subset(List_T_Cells_Only_Treatments$Heatmap_df_LRT
+, rownames(List_T_Cells_Only_Treatments$Heatmap_df_LRT) %in% Mouse_TFs_gene_names)
+  #Generating Heatmap
+Tcells_OnlyTreatments_MouseTFs_Heatmap <-
+  pheatmap::pheatmap(
+    Tcells_OnlyTreatments_MouseTFs,
+    scale = "row",
+    fontsize_col = 15,
+    cluster_rows = T,
+    treeheight_row = 0,
+    cluster_cols =
+      T_Cells_Only_treatments_Heatmap$tree_col,
+    show_rownames = T,
+    show_colnames = T,
+    cutree_rows = 8,
+    cutree_cols  = 4,
+    clustering_distance_rows = "euclidean",
+    clustering_distance_cols = "euclidean",
+    color = rev(colorRampPalette(brewer.pal(10, "RdBu"))(256)),
+    cellwidth = 30,
+    fontsize_row = 7,
+    display_numbers = F,
+    fontsize_number = 1,
+    border_color = NA,
+    annotation_col =
+      data.frame(
+        Group =  factor(c(rep(
+          c("PMoDC", "PCD11c",
+            "PCD11_LCD11",
+            "PCD11_LMoDC"),
+          each =
+            4
+        ))),
+        row.names = c(
+          "T_PimedMoDC_1",
+          "T_PimedMoDC_2",
+          "T_PimedMoDC_3",
+          "T_PimedMoDC_4",
+          "T_PimedCD11c_2",
+          "T_PimedCD11c_4",
+          "T_PimedCD11c_1",
+          "T_PimedCD11c_3",
+          "T_PCD11_LCD11_3",
+          "T_PCD11_LCD11_4",
+          "T_PCD11_LCD11_1",
+          "T_PCD11_LCD11_2",
+          "T_PCD11_LMoDC_3",
+          "T_PCD11_LMoDC_2",
+          "T_PCD11_LMoDC_1",
+          "T_PCD11_LMoDC_4"
+        )
+      ),
+    annotation_colors = list(
+      Group = c(
+        "PMoDC" = "brown",
+        "PCD11c" = "black",
+        "PCD11_LCD11" = "#0c7af7",
+        "PCD11_LMoDC" = "pink"
+      )
+    ),
+    annotation_legend = T
+  )
+
+
+
+Tcells_OnlyTreatments_MouseTFs_Heatmap <- pheatmap.edit(Tcells_OnlyTreatments_MouseTFs_Heatmap, annotations_title_x = -550)
+
+
+
+#Calculating scaled values of the data:
+Tcells_OnlyTreatments_MouseTFs_scaled <- round(pheatmap.scale(Tcells_OnlyTreatments_MouseTFs), 2)
+
+row.order = Tcells_OnlyTreatments_MouseTFs_Heatmap$tree_row$order
+
+Tcells_OnlyTreatments_MouseTFs_scaled <- Tcells_OnlyTreatments_MouseTFs_scaled[row.order,General_col_order]
+
+write.csv(Tcells_OnlyTreatments_MouseTFs_scaled, file = ".\\T_Cells\\Only_Treatments\\Heatmaps\\Heatmap_DF_T_Cells_Only_Treatments_TFs.csv")
+
+
+
+
+  #SMALL ROWNAMES
+#Tcells_OnlyTreatments_MouseTFs_Heatmap_small_rownames <- pheatmap(Tcells_OnlyTreatments_MouseTFs, scale="row", display_numbers = FALSE, cluster_rows = T, treeheight_row = 0, cluster_cols = T, border_color = NA, show_rownames = T, show_colnames = T,color = rev(colorRampPalette(brewer.pal(10, "RdBu"))(256)), cutree_rows = 8,cutree_cols  = 2,  clustering_distance_rows = "euclidean",clustering_distance_cols = "euclidean",cellwidth = 30,fontsize_row = 1)
+#Side title
+#grid.text("Transcription Factors", x=0.08, y=0.6, rot=90,gp=gpar(fontsize=20, col="black"))
+
+
+  #Specific chosen labels from specific clusters:
+genes_order_in_heatmap <- rownames(Tcells_OnlyTreatments_MouseTFs[Tcells_OnlyTreatments_MouseTFs_Heatmap$tree_row[["order"]],])
+  
+cutree_row_clusters<- sort(cutree(Tcells_OnlyTreatments_MouseTFs_Heatmap$tree_row, k=8))
+  
+cluster6 <- subset(cutree_row_clusters, cutree_row_clusters == 6) #7
+cluster6_genes <- names(cluster6)
+cluster6_genes_ordered <- genes_order_in_heatmap[genes_order_in_heatmap %in% cluster6_genes]
+
+write.table(cluster6_genes_ordered, ".\\T_Cells\\Priming_Licensing_Only\\cluster6_genes_ordered_TFs_Tcells_InVitro_Treatments.txt",row.names = F, col.names = F)
+#PLOTTING
+  #Using function "add.flag" to add arrows to the top and bottom gene labels of the chosen clusters in the heatmap
+#add.flag(Tcells_OnlyTreatments_MouseTFs_Heatmap,         list.kept.labels = list(cluster6_genes_ordered),     repel.degree = 0,    upward.list = list(F)) 
+
+add.flag.specific(Tcells_OnlyTreatments_MouseTFs_Heatmap,
+         kept.labels=(c("Rfx1","Fosl1","Batf","Stat5a","Myc","Gata1","Cebpb","Tbx21")),
+         repel.degree = 0, shift_vector = c(0,0,0.01,0,0.01,0,0,0))
+#Side title
+grid.text("Transcription Factors", x=0.08, y=0.6, rot=90,gp=gpar(fontsize=30, col="black"))
+
+
+
+
+
+#LIGANDS HEATMAP
+  #Data
+Tcells_OnlyTreatments_MouseLigands <- subset(List_T_Cells_Only_Treatments$Heatmap_df_LRT, rownames(List_T_Cells_Only_Treatments$Heatmap_df_LRT) %in% ligands_subset)
+  #Saving rownames
+#write.table(rownames(MoDC_Wash_no_MouseLigands), ".\\MoDC\\With_Wash\\Without_Naive_MoDC_M4_Sample\\ligands_heatmap_subset.txt", row.names = FALSE, col.names = FALSE)
+  #Generating general heatmap
+Tcells_OnlyTreatments_MouseLigands_Heatmap <-
+  pheatmap(
+    Tcells_OnlyTreatments_MouseLigands,
+    scale = "row",
+    cluster_rows = T,
+    treeheight_row = 0,
+    fontsize_col = 20,
+    cluster_cols =
+      T_Cells_Only_treatments_Heatmap$tree_col,
+    show_rownames = T,
+    show_colnames = T,
+    cutree_cols  = 4,
+    cutree_rows = 7,
+    clustering_distance_rows = "euclidean",
+    clustering_distance_cols = "euclidean",
+    color = rev(colorRampPalette(brewer.pal(10, "RdBu"))(256)),
+    cellwidth = 30,
+    display_numbers = F,
+    fontsize_row = 7,
+    border_color = NA,
+    annotation_col =
+      data.frame(
+        Group =  factor(c(rep(
+          c("PMoDC", "PCD11c",
+            "PCD11_LCD11", "PCD11_LMoDC"), each =
+            4
+        ))),
+        row.names =
+          c(
+            "T_PimedMoDC_1",
+            "T_PimedMoDC_2",
+            "T_PimedMoDC_3",
+            "T_PimedMoDC_4",
+            "T_PimedCD11c_2",
+            "T_PimedCD11c_4",
+            "T_PimedCD11c_1",
+            "T_PimedCD11c_3",
+            "T_PCD11_LCD11_3",
+            "T_PCD11_LCD11_4",
+            "T_PCD11_LCD11_1",
+            "T_PCD11_LCD11_2",
+            "T_PCD11_LMoDC_3",
+            "T_PCD11_LMoDC_2",
+            "T_PCD11_LMoDC_1",
+            "T_PCD11_LMoDC_4"
+          )
+      ),
+    annotation_colors = list(
+      Group = c(
+        "PMoDC" = "brown",
+        "PCD11c" = "black",
+        "PCD11_LCD11" = "#0c7af7",
+        "PCD11_LMoDC" = "pink"
+      )
+    ),
+    annotation_legend = T
+  )
+
+
+Tcells_OnlyTreatments_MouseLigands_Heatmap <- pheatmap.edit(Tcells_OnlyTreatments_MouseLigands_Heatmap, annotations_title_x = -550)
+
+
+
+
+#Calculating scaled values of the data:
+Tcells_OnlyTreatments_MouseLigands_scaled <- round(pheatmap.scale(Tcells_OnlyTreatments_MouseLigands), 2)
+
+row.order = Tcells_OnlyTreatments_MouseLigands_Heatmap$tree_row$order
+
+Tcells_OnlyTreatments_MouseLigands_scaled <- Tcells_OnlyTreatments_MouseLigands_scaled[row.order,General_col_order]
+
+write.csv(Tcells_OnlyTreatments_MouseLigands_scaled, file = ".\\T_Cells\\Only_Treatments\\Heatmaps\\Heatmap_DF_T_Cells_Only_Treatments_Ligands.csv")
+
+
+
+
+  #Specific chosen labels from specific clusters:
+genes_order_in_heatmap <- rownames(Tcells_OnlyTreatments_MouseLigands[Tcells_OnlyTreatments_MouseLigands_Heatmap$tree_row[["order"]],])
+  
+cutree_row_clusters<- sort(cutree(Tcells_OnlyTreatments_MouseLigands_Heatmap$tree_row, k=7))
+  
+cluster5 <- subset(cutree_row_clusters, cutree_row_clusters == 6) #2
+cluster5_genes <- names(cluster5)
+cluster5_genes_ordered <- genes_order_in_heatmap[genes_order_in_heatmap %in% cluster5_genes]
+
+#PLOTTING
+  #Using function "add.flag" to add arrows to the top and bottom gene labels of the chosen clusters in the heatmap
+add.flag(Tcells_OnlyTreatments_MouseLigands_Heatmap,
+         list.kept.labels = list(cluster5_genes_ordered),
+         repel.degree = 0,
+         upward.list = list(T))
+grid.text("Ligands", x=0.10, y=0.6, rot=90,gp=gpar(fontsize=20, col="black"))
+
+
+
+
+
+
+#Receptors HEATMAP
+  #Data
+Tcells_OnlyTreatments_MouseReceptors <- subset(List_T_Cells_Only_Treatments$Heatmap_df_LRT, rownames(List_T_Cells_Only_Treatments$Heatmap_df_LRT) %in% receptors_subset)
+
+  #Generating general heatmap
+Tcells_OnlyTreatments_MouseReceptors_Heatmap <-
+  pheatmap::pheatmap(
+    Tcells_OnlyTreatments_MouseReceptors,
+    scale = "row",
+    cluster_rows = T,
+    treeheight_row = 0,
+    fontsize_col = 20,
+    cluster_cols =
+      T_Cells_Only_treatments_Heatmap$tree_col,
+    border_color = NA,
+    show_rownames = T,
+    show_colnames = T,
+    cutree_cols = 4,
+    cutree_rows = 7,
+    clustering_distance_rows = "euclidean",
+    clustering_distance_cols = "euclidean",
+    color = rev(colorRampPalette(brewer.pal(10, "RdBu"))(256)),
+    cellwidth = 30,
+    display_numbers = F,
+    fontsize_number = 1,
+    fontsize_row = 5,
+    annotation_col =
+      data.frame(
+        Group =
+          factor(c(rep(
+            c("PMoDC",
+              "PCD11c",
+              "PCD11_LCD11"                                                                                  , "PCD11_LMoDC"),
+            each =
+              4
+          ))),
+        row.names = c(
+          "T_PimedMoDC_1",
+          "T_PimedMoDC_2",
+          "T_PimedMoDC_3",
+          "T_PimedMoDC_4",
+          "T_PimedCD11c_2",
+          "T_PimedCD11c_4",
+          "T_PimedCD11c_1",
+          "T_PimedCD11c_3",
+          "T_PCD11_LCD11_3",
+          "T_PCD11_LCD11_4",
+          "T_PCD11_LCD11_1",
+          "T_PCD11_LCD11_2",
+          "T_PCD11_LMoDC_3",
+          "T_PCD11_LMoDC_2",
+          "T_PCD11_LMoDC_1",
+          "T_PCD11_LMoDC_4"
+        )
+      ),
+    annotation_colors = list(
+      Group = c(
+        "PMoDC" = "brown",
+        "PCD11c" = "black",
+        "PCD11_LCD11" = "#0c7af7",
+        "PCD11_LMoDC" = "pink"
+      )
+    ),
+    annotation_legend = T
+  )
+
+
+Tcells_OnlyTreatments_MouseReceptors_Heatmap <- pheatmap.edit(Tcells_OnlyTreatments_MouseReceptors_Heatmap, annotations_title_x = -550)
+
+
+
+
+#Calculating scaled values of the data:
+Tcells_OnlyTreatments_MouseReceptors_scaled <- round(pheatmap.scale(Tcells_OnlyTreatments_MouseReceptors), 2)
+
+row.order = Tcells_OnlyTreatments_MouseReceptors_Heatmap$tree_row$order
+
+Tcells_OnlyTreatments_MouseReceptors_scaled <- Tcells_OnlyTreatments_MouseReceptors_scaled[row.order,General_col_order]
+
+write.csv(Tcells_OnlyTreatments_MouseReceptors_scaled, file = ".\\T_Cells\\Only_Treatments\\Heatmaps\\Heatmap_DF_T_Cells_Only_Treatments_Receptors.csv")
+
+
+
+  #Specific chosen labels from specific clusters:
+genes_order_in_heatmap <- rownames(Tcells_OnlyTreatments_MouseReceptors[Tcells_OnlyTreatments_MouseReceptors_Heatmap$tree_row[["order"]],])
+  
+cutree_row_clusters<- sort(cutree(Tcells_OnlyTreatments_MouseReceptors_Heatmap$tree_row, k=7))
+  
+cluster4 <- subset(cutree_row_clusters, cutree_row_clusters == 4) #6
+cluster4_genes <- names(cluster4)
+cluster4_genes_ordered <- genes_order_in_heatmap[genes_order_in_heatmap %in% cluster4_genes]
+
+#PLOTTING
+  #Using function "add.flag" to add arrows to the top and bottom gene labels of the chosen clusters in the heatmap
+add.flag(Tcells_OnlyTreatments_MouseReceptors_Heatmap,
+         list.kept.labels = list(cluster5_genes_ordered),
+         repel.degree = 0,
+         upward.list = list(F))
+grid.text("Receptors", x=0.10, y=0.6, rot=90,gp=gpar(fontsize=20, col="black"))
+
+
+```
+
+
+```{r}
+########################## Creating Heatmaps and Further analysis ##############################################
+######################### T cells - 'Primed vs Naive' ####################################################
+
+
+List_T_Cells_PMoDC_PCD11c_Naive <- readRDS(".\\T_Cells\\\PMoDC_PCD11c_Naive\\T_Cells_Primed_Naive.rds")
+
+
+
+#General HEATMAP of EVERYTHING 
+PMoDC_PCD11c_Naive_Heatmap <-
+  pheatmap(
+    List_T_Cells_PMoDC_PCD11c_Naive$Heatmap_df_LRT,
+    scale = "row",
+    cluster_rows = T,
+    treeheight_row = 0,
+    cluster_cols = T,
+    show_rownames = F,
+    show_colnames = T,
+    cutree_cols  = 3,
+    cutree_rows = 11,
+    clustering_distance_rows =
+      "euclidean",
+    clustering_distance_cols = "euclidean",
+    color = rev(colorRampPalette(brewer.pal(10, "RdBu"))(256)),
+    border_color = NA,
+    display_numbers = F,
+    fontsize_number = 1,
+    cellwidth = 20,
+    cellheight = 0.1,
+    annotation_col =
+      data.frame(
+        Group =  factor(c(rep(
+          c("PMoDC",
+            "PCD11c", "Naive"),
+          each =
+            4
+        ))),
+        row.names = c(
+          "T_PimedMoDC_1",
+          "T_PimedMoDC_2",
+          "T_PimedMoDC_3",
+          "T_PimedMoDC_4",
+          "T_PimedCD11c_2",
+          "T_PimedCD11c_4",
+          "T_PimedCD11c_1",
+          "T_PimedCD11c_3",
+          "Naive_T_cell_1",
+          "Naive_T_cell_2",
+          "Naive_T_cell_3",
+          "Naive_T_cell_4"
+        )
+      ),
+    annotation_colors = list(Group = c(
+      "PMoDC" = "brown",
+      "PCD11c" = "black",
+      "Naive" = "darkred"
+    )),
+    annotation_legend = T
+  )
+
+General_col_order <- PMoDC_PCD11c_Naive_Heatmap$tree_col$order
+
+PMoDC_PCD11c_Naive_Heatmap <- pheatmap.edit(PMoDC_PCD11c_Naive_Heatmap,general=T)
+
+
+```
+
+
+
+
+```{r}
+########################## Creating Heatmaps and Further analysis ############################################## MoDC NO WASH ###########################################
+
+#New legend label grob
+legend_title <- textGrob("Row Z-Score",x=0,y=1.01,hjust=0,vjust=0, gp = gpar(fontsize=15,fontface="bold"))
+
+
+List_MoDC_noWash_no_Naive_MoDC_M4 <- readRDS("C:\\Kfir_Thesis_Asaf_Madi\\Project_2 - BulkRNAseq\\MoDC\\Without_Wash\\Without_Naive_MoDC_M4_Sample\\InVitro_MoDC_6HvsMoDC_Naive_Without_Naive_M4.rds")
+
+#Wald Heatmap
+deg_res_sigs_Wald <- List_MoDC_noWash_no_Naive_MoDC_M4$Counts_res_list$`Treatment_6H _vs_ Naive`$deg_res_sig
+Heatmap_df_Wald <- deg_res_sigs_Wald[order(deg_res_sigs_Wald$lgFC_Treatment_6H_vs_Naive, decreasing = TRUE),]
+#Obtaining normalized counts
+nm_counts_deseq_Wald <- rlog(List_MoDC_noWash_no_Naive_MoDC_M4$dds_Wald, blind=FALSE)
+#Filtering to only genes from the DEG sigs
+Heatmap_df_Wald <- assay(nm_counts_deseq_Wald)[rownames(Heatmap_df_Wald), ]
+
+
+
+#HEATMAPS
+#General HEATMAP of EVERYTHING 
+MoDC_NOWash_no_NaiveM4_heatmap <-
+  pheatmap::pheatmap(
+    Heatmap_df_Wald,
+    scale = "row",
+    show_rownames = F,
+    show_colnames = T,
+    cluster_rows = T,
+    cluster_cols = T,
+    cutree_cols  = 2,
+    cutree_rows = 2,
+    fontsize_col = 15,
+    clustering_distance_rows = "euclidean",
+    clustering_distance_cols = "euclidean",
+    treeheight_row = 0,
+    color =
+      rev(colorRampPalette(brewer.pal(10, "RdBu"))(256)),
+    cellwidth = 20,
+    cellheight = 0.1,
+    display_numbers = FALSE,
+    border_color = NA,
+    annotation_col =
+      data.frame(
+        Group =
+          factor(c(rep(
+            c("6H_Treatment"),
+            each =
+              4
+          ) , rep("Naive", 3))),
+        row.names = c(
+          "MoDC_6H_M4",
+          "MoDC_6H_M1",
+          "MoDC_6H_M2",
+          "MoDC_6H_M3",
+          "Naive_MoDC_M3",
+          "Naive_MoDC_M1",
+          "Naive_MoDC_M2"
+        )
+      ),
+    annotation_colors = list(
+      Group = c(
+        "6H_Treatment" = "#bf05fc",
+       "Naive" = "#0c7af7"
+      )
+    ),
+    annotation_legend = T
+  )
+#PDF: 10 10 landscape
+
+
+General_col_order <- MoDC_NOWash_no_NaiveM4_heatmap$tree_col$order
+
+MoDC_NOWash_no_NaiveM4_heatmap <- pheatmap.edit(MoDC_NOWash_no_NaiveM4_heatmap, annotations_title_x = -300)
+
+#Saving the heatmap as dataframe:
+#Calculating scaled values of the data:
+MoDC_NOWash_no_NaiveM4_heatmap_scaled <- round(pheatmap.scale(Heatmap_df_Wald), 2)
+
+row.order = MoDC_NOWash_no_NaiveM4_heatmap$tree_row$order
+
+MoDC_NOWash_no_NaiveM4_heatmap_scaled <- MoDC_NOWash_no_NaiveM4_heatmap_scaled[row.order,General_col_order]
+
+write.csv(MoDC_NOWash_no_NaiveM4_heatmap_scaled, file = "C:\\Kfir_Thesis_Asaf_Madi\\Project_2 - BulkRNAseq\\MoDC\\Without_Wash\\Without_Naive_MoDC_M4_Sample\\Heatmaps\\Heatmap_DF_MoDC_NOWash_no_NaiveM4_ALL_Wald.csv")
+
+#PLOTTING
+MoDC_NOWash_no_NaiveM4_heatmap
+
+
+
+
+
+#TFs (TRANSCRIPTION FACTORS) HEATMAP
+
+  #Data
+MoDC_NOWash_no_MouseTFs <- subset(Heatmap_df_Wald, rownames(Heatmap_df_Wald) %in% Mouse_TFs_gene_names)
+
+  #Subset of TF genes to show
+Tfs_To_Show <- read.table(file = "C:\\Kfir_Thesis_Asaf_Madi\\Project_2 - BulkRNAseq\\Gene_lists\\TFs_UPDown_CD8Tumor_MoDC6H_Common.txt", sep = '\n', header = FALSE)$V1
+  #Setting rownames that are not wanted as "", while keeping the Tfs_To_Show rownames
+labs.row <- rownames(MoDC_NOWash_no_MouseTFs)
+labs.row[!(labs.row %in% Tfs_To_Show)] <- ""
+
+  #Generating Heatmap
+MoDC_NOWash_no_MouseTFs_Heatmap <- pheatmap::pheatmap(
+  MoDC_NOWash_no_MouseTFs,
+  labels_row = labs.row,
+  scale = "row",
+  show_rownames = T,
+  show_colnames = T,
+  cluster_rows = T,
+  fontsize_col = 15,
+  cluster_cols = MoDC_NOWash_no_NaiveM4_heatmap$tree_col,
+  cutree_rows = 2,
+  cutree_cols  = 2,
+  clustering_distance_rows = "euclidean",
+  clustering_distance_cols = "euclidean",
+  treeheight_row = 0,
+  color =
+    rev(colorRampPalette(brewer.pal(10, "RdBu"))(256)),
+  cellwidth = 30,
+  fontsize_row = 2,
+  display_numbers = FALSE,
+  border_color = NA,
+  annotation_col =
+    data.frame(
+      Group =
+        factor(c(rep(
+          c("6H_Treatment"),
+          each =
+            4
+        ) , rep("Naive", 3))),
+      row.names = c(
+        "MoDC_6H_M4",
+        "MoDC_6H_M1",
+        "MoDC_6H_M2",
+        "MoDC_6H_M3",
+        "Naive_MoDC_M3",
+        "Naive_MoDC_M1",
+        "Naive_MoDC_M2"
+      )
+    ),
+  annotation_colors = list(
+    Group = c(
+      "6H_Treatment" = "#bf05fc",
+      "Naive" = "#0c7af7"
+    )
+  ),
+  annotation_legend = T
+)
+
+#PDF: 10 10 landscape
+
+
+MoDC_NOWash_no_MouseTFs_Heatmap <- pheatmap.edit(MoDC_NOWash_no_MouseTFs_Heatmap, annotations_title_x = -400)
+
+
+#Calculating scaled values of the data:
+MoDC_Wash_no_MouseTFs_scaled <- round(pheatmap.scale(MoDC_NOWash_no_MouseTFs), 2)
+
+row.order = MoDC_NOWash_no_MouseTFs_Heatmap$tree_row$order
+
+MoDC_Wash_no_MouseTFs_scaled <- MoDC_Wash_no_MouseTFs_scaled[row.order,General_col_order]
+
+write.csv(MoDC_Wash_no_MouseTFs_scaled, file = "C:\\Kfir_Thesis_Asaf_Madi\\Project_2 - BulkRNAseq\\MoDC\\Without_Wash\\Without_Naive_MoDC_M4_Sample\\Heatmaps\\Heatmap_DF_MoDC_NOWash_no_NaiveM4_TFs_Wald.csv")
+
+MoDC_NOWash_no_MouseTFs_Heatmap
+  #Side title
+grid.text("Transcription Factors", x=0.13, y=0.6, rot=90,gp=gpar(fontsize=20, col="black"))
+
+
+
+#LIGANDS HEATMAP
+  #Data
+MoDC_NOWash_no_MouseLigands <- subset(Heatmap_df_Wald, rownames(Heatmap_df_Wald) %in% ligands_subset)
+  #Saving rownames
+#write.table(rownames(MoDC_NOWash_no_MouseLigands), ".\\MoDC\\Without_Wash\\Without_Naive_MoDC_M4_Sample\\ligands_heatmap_subset.txt", row.names = FALSE, col.names = FALSE)
+
+  #Subset of ligand genes to show
+Ligands_To_Show <- read.table(file = '.\\Gene_lists\\ligands_subset_To_Show.txt', sep = '\n', header = FALSE)$V1
+  #Setting rownames that are not wanted as "", while keeping the Ligands_To_Show rownames
+labs.row <- rownames(MoDC_NOWash_no_MouseLigands)
+labs.row[!(labs.row %in% Ligands_To_Show)] <- ""
+
+#Generating specific labels heatmap
+MoDC_NOWash_no_MouseLigands_Heatmap <-
+  pheatmap::pheatmap(
+    MoDC_NOWash_no_MouseLigands,
+    scale = "row",
+    show_rownames = T,
+    show_colnames = T,
+    cluster_rows = T,
+    fontsize_col = 15,
+    cluster_cols =
+      MoDC_NOWash_no_NaiveM4_heatmap$tree_col,
+    cutree_rows = 2,
+    cutree_cols  = 2,
+    clustering_distance_rows = "euclidean",
+    clustering_distance_cols = "euclidean",
+    treeheight_row = 0,
+    color =
+      rev(colorRampPalette(brewer.pal(10, "RdBu"))(256)),
+    border_color = NA,
+    cellwidth = 30,
+    fontsize_row =  4,
+    display_numbers = FALSE,
+    labels_row = labs.row,
+    annotation_col =
+      data.frame(
+        Group =
+          factor(c(rep(
+            c("6H_Treatment"),
+            each =
+              4
+          ) , rep("Naive", 3))),
+        row.names = c(
+          "MoDC_6H_M4",
+          "MoDC_6H_M1",
+          "MoDC_6H_M2",
+          "MoDC_6H_M3",
+          "Naive_MoDC_M3",
+          "Naive_MoDC_M1",
+          "Naive_MoDC_M2"
+        )
+      ),
+    annotation_colors = list(
+      Group =
+        c(
+          "6H_Treatment" = "#bf05fc",
+          "Naive" = "#0c7af7"
+        )
+    ),
+    annotation_legend = T
+  )
+
+
+MoDC_NOWash_no_MouseLigands_Heatmap <- pheatmap.edit(MoDC_NOWash_no_MouseLigands_Heatmap, annotations_title_x = -400)
+
+#Calculating scaled values of the data:
+MoDC_NOWash_no_MouseLigands_Heatmap_scaled <- round(pheatmap.scale(MoDC_NOWash_no_MouseLigands), 2)
+
+row.order = MoDC_NOWash_no_MouseLigands_Heatmap$tree_row$order
+
+MoDC_NOWash_no_MouseLigands_Heatmap_scaled <- MoDC_NOWash_no_MouseLigands_Heatmap_scaled[row.order,General_col_order]
+
+write.csv(MoDC_NOWash_no_MouseLigands_Heatmap_scaled, file = "C:\\Kfir_Thesis_Asaf_Madi\\Project_2 - BulkRNAseq\\MoDC\\Without_Wash\\Without_Naive_MoDC_M4_Sample\\Heatmaps\\Heatmap_DF_MoDC_NOWash_no_NaiveM4_Ligands_Wald.csv")
+
+#PLOTTING
+MoDC_NOWash_no_MouseLigands_Heatmap
+grid.text("Ligands", x=0.13, y=0.6, rot=90,gp=gpar(fontsize=20, col="black"))
+
+
+
+
+
+
+
+#RECEPTORS HEATMAP
+  #Data
+MoDC_NOWash_no_MouseReceptors <- subset(Heatmap_df_Wald, rownames(Heatmap_df_Wald) %in% receptors_subset)
+  #Saving rownames
+#write.table(rownames(MoDC_NOWash_no_MouseReceptors), ".\\MoDC\\Without_Wash\\Without_Naive_MoDC_M4_Sample\\receptors_heatmap_subset.txt", row.names = FALSE, col.names = FALSE)
+
+  #Subset of ligand genes to show
+Receptors_To_Show <- read.table(file = '.\\Gene_lists\\Receptors_subset_To_Show_In_Vitro_MoDC_NOWash.txt', sep = '\n', header = FALSE)$V1
+  #Setting rownames that are not wanted as "", while keeping the Receptors_To_Show rownames
+labs.row <- rownames(MoDC_NOWash_no_MouseReceptors)
+labs.row[!(labs.row %in% Receptors_To_Show)] <- ""
+
+#Creating general heatmap
+MoDC_NOWash_no_MouseReceptors_Heatmap <-
+  pheatmap::pheatmap(
+    MoDC_NOWash_no_MouseReceptors,
+    labels_row = labs.row,
+    scale = "row",
+    show_rownames = T,
+    show_colnames = T,
+    fontsize_col = 15,
+    cluster_rows = T,
+    cluster_cols =
+      MoDC_NOWash_no_NaiveM4_heatmap$tree_col,
+    cutree_rows = 2,
+    cutree_cols  = 2,
+    clustering_distance_rows = "euclidean",
+    clustering_distance_cols = "euclidean",
+    color =
+      rev(colorRampPalette(brewer.pal(10, "RdBu"))(256)),
+    treeheight_row = 0,
+    display_numbers = F,
+    border_color = NA,
+    cellwidth = 30,
+    annotation_col =
+      data.frame(
+        Group =
+          factor(c(rep(
+            c("6H_Treatment"),
+            each =
+              4
+          ) , rep("Naive", 3))),
+        row.names = c(
+          "MoDC_6H_M4",
+          "MoDC_6H_M1",
+          "MoDC_6H_M2",
+          "MoDC_6H_M3",
+          "Naive_MoDC_M3",
+          "Naive_MoDC_M1",
+          "Naive_MoDC_M2"
+        )
+      ),
+    annotation_colors = list(
+      Group =
+        c(
+          "6H_Treatment" = "#bf05fc",
+          "Naive" = "#0c7af7"
+        )
+    ),
+    annotation_legend = T
+  )
+
+MoDC_NOWash_no_MouseReceptors_Heatmap <- pheatmap.edit(MoDC_NOWash_no_MouseReceptors_Heatmap, annotations_title_x = -400)
+
+
+#Calculating scaled values of the data:
+MoDC_NOWash_no_MouseReceptors_Heatmap_scaled <- round(pheatmap.scale(MoDC_NOWash_no_MouseReceptors), 2)
+
+row.order = MoDC_NOWash_no_MouseReceptors_Heatmap$tree_row$order
+
+MoDC_NOWash_no_MouseReceptors_Heatmap_scaled <- MoDC_NOWash_no_MouseReceptors_Heatmap_scaled[row.order,General_col_order]
+
+write.csv(MoDC_NOWash_no_MouseReceptors_Heatmap_scaled, file = ".\\MoDC\\Without_Wash\\Without_Naive_MoDC_M4_Sample\\Heatmaps\\Heatmap_DF_MoDC_NOWash_no_NaiveM4_Receptors_Wald.csv")
+
+MoDC_NOWash_no_MouseReceptors_Heatmap
+grid.text("Receptors", x=0.13, y=0.6, rot=90,gp=gpar(fontsize=20, col="black"))
+
+
+```

@@ -1,0 +1,857 @@
+---
+title: "DC_In_Vitro_VS_In_Vivo"
+author: "Kfir Inbal"
+date: "2024-01-03"
+output: html_document
+---
+```{r}
+#Loading libraries
+library(corrplot)
+library(pheatmap)
+library(tidyverse)
+library(DT)
+#FGSEA
+library("fgsea")
+library(ggplot2)
+library(ggrepel)
+library(ggExtra)
+
+```
+
+
+```{r}
+
+# Functions preprocessing GSEA ===================================================
+## Function: Adjacency matrix to list -------------------------
+matrix_to_list <- function(pws){
+  pws.l <- list()
+  for (pw in colnames(pws)) {
+    pws.l[[pw]] <- rownames(pws)[as.logical(pws[, pw])]
+  }
+  return(pws.l)
+}
+
+## Function: prepare_gmt --------------------------------------
+prepare_gmt <- function(gmt_file, genes_in_data, savefile = FALSE){
+  # for debug
+  #file <- gmt_files[1]
+  #genes_in_data <- df$gene_symbol
+  
+  # Read in gmt file
+  gmt <- gmt_file
+  hidden <- unique(unlist(gmt))
+  
+  # Convert gmt file to a matrix with the genes as rows and for each go annotation (columns) the values are 0 or 1
+  mat <- matrix(NA, dimnames = list(hidden, names(gmt)),
+                nrow = length(hidden), ncol = length(gmt))
+  for (i in 1:dim(mat)[2]){
+    mat[,i] <- as.numeric(hidden %in% gmt[[i]])
+  }
+  
+  #Subset to the genes that are present in our data to avoid bias
+  hidden1 <- intersect(genes_in_data, hidden)
+  mat <- mat[hidden1, colnames(mat)[which(colSums(mat[hidden1,])>5)]] # filter for gene sets with more than 5 genes annotated
+  # And get the list again
+  final_list <- matrix_to_list(mat) # for this we use the function we previously defined
+  
+  if(savefile){
+    saveRDS(final_list, file = paste0(gsub('.gmt', '', gmt_file), '_subset_', format(Sys.time(), '%d%m'), '.RData'))
+  }
+  
+  print('Wohoo! .gmt conversion successfull!:)')
+  return(final_list)
+}
+
+# Analysis ====================================================
+
+## 2. Prepare background genes -----------------------------------------------
+
+# Download gene sets .gmt files
+#https://www.gsea-msigdb.org/gsea/msigdb/collections.jsp
+
+
+```
+
+```{r}
+##################################DC In vitro VS In Vivo Correlation Matrix #####################
+List_moDC_In_Vitro <- readRDS("C:\\Kfir_Thesis_Asaf_Madi\\Project_2 - BulkRNAseq\\MoDC\\With_Wash\\Without_Naive_MoDC_M4_Sample\\MoDC_Without_Naive_M4.rds")
+List_CD11_In_Vitro <- readRDS("C:\\Kfir_Thesis_Asaf_Madi\\Project_2 - BulkRNAseq\\CD11c\\CD11c_6H_VS_CD11c_Naive.rds")
+List_moDC_In_Vivo <- readRDS(".\\moDC\\Results\\moDC_LN_Tumor_In_Vivo.rds")
+
+
+
+moDC_In_Vitro <- as.data.frame(assay(List_moDC_In_Vitro$Counts_Normalized_data$data))
+CD11_In_Vitro <- as.data.frame(assay(List_CD11_In_Vitro$Counts_Normalized_data$data))
+moDC_In_Vivo <- as.data.frame(assay(List_moDC_In_Vivo$Counts_Normalized_data$data))
+
+#In vitro moDC average
+mean_moDC_In_Vitro <- moDC_In_Vitro
+
+#MoDC_48H_Wash mean
+mean_moDC_In_Vitro$MoDC_48H_Wash <- rowMeans(mean_moDC_In_Vitro[, colnames(mean_moDC_In_Vitro) %in% c("MoDC_48Hwash_M1", "MoDC_48Hwash_M2", "MoDC_48Hwash_M3", "MoDC_48Hwash_M4")])
+mean_moDC_In_Vitro <- subset(mean_moDC_In_Vitro, select = -c(MoDC_48Hwash_M1, MoDC_48Hwash_M2, MoDC_48Hwash_M3, MoDC_48Hwash_M4))
+
+#MoDC_6H mean
+mean_moDC_In_Vitro$MoDC_6H <- rowMeans(mean_moDC_In_Vitro[, colnames(mean_moDC_In_Vitro) %in% c("MoDC_6H_M1", "MoDC_6H_M2", "MoDC_6H_M3","MoDC_6H_M4")])
+mean_moDC_In_Vitro <- subset(mean_moDC_In_Vitro, select = -c(MoDC_6H_M1, MoDC_6H_M2, MoDC_6H_M3,MoDC_6H_M4))
+
+#MoDC_Naive mean
+mean_moDC_In_Vitro$MoDC_Naive <- rowMeans(mean_moDC_In_Vitro[, colnames(mean_moDC_In_Vitro) %in% c("Naive_MoDC_M1", "Naive_MoDC_M2", "Naive_MoDC_M3")])
+mean_moDC_In_Vitro <- subset(mean_moDC_In_Vitro, select = -c(Naive_MoDC_M1, Naive_MoDC_M2, Naive_MoDC_M3))
+
+
+#In vitro CD11 average
+mean_CD11_In_Vitro <- CD11_In_Vitro
+
+#CD11_6H mean
+mean_CD11_In_Vitro$CD11_6H <- rowMeans(mean_CD11_In_Vitro[, colnames(mean_CD11_In_Vitro) %in% c("CD11c_6H_M1", "CD11c_6H_M2", "CD11c_6H_M3", "CD11c_6H_M4")])
+mean_CD11_In_Vitro <- subset(mean_CD11_In_Vitro, select = -c(CD11c_6H_M1, CD11c_6H_M2, CD11c_6H_M3, CD11c_6H_M4))
+
+
+#CD11_Naive mean
+mean_CD11_In_Vitro$CD11_Naive <- rowMeans(mean_CD11_In_Vitro[, colnames(mean_CD11_In_Vitro) %in% c("Naive_CD11c_M1","Naive_CD11c_M2","Naive_CD11c_M3","Naive_CD11c_M4")])
+mean_CD11_In_Vitro <- subset(mean_CD11_In_Vitro, select = -c(Naive_CD11c_M1,Naive_CD11c_M2,Naive_CD11c_M3,Naive_CD11c_M4))
+
+
+
+#In vivo moDC average
+mean_moDC_In_Vivo <- moDC_In_Vivo
+
+#DC_LN mean
+mean_moDC_In_Vivo$DC_LN <- rowMeans(mean_moDC_In_Vivo[, colnames(mean_moDC_In_Vivo) %in% c("DC_LN1","DC_LN2","DC_LN3")])
+mean_moDC_In_Vivo <- subset(mean_moDC_In_Vivo, select = -c(DC_LN1,DC_LN2,DC_LN3))
+
+#DC_Tumor mean
+mean_moDC_In_Vivo$DC_Tumor <- rowMeans(mean_moDC_In_Vivo[, colnames(mean_moDC_In_Vivo) %in% c("DC_Tumor1","DC_Tumor2","DC_Tumor3")])
+mean_moDC_In_Vivo <- subset(mean_moDC_In_Vivo, select = -c(DC_Tumor1,DC_Tumor2,DC_Tumor3))
+
+#MERGE
+DC_In_Vitro_VS_In_Vivo <- merge(mean_moDC_In_Vitro,mean_moDC_In_Vivo, by = "row.names") #13,891 genes
+#First column to row.names
+DC_In_Vitro_VS_In_Vivo <- DC_In_Vitro_VS_In_Vivo %>% remove_rownames %>% column_to_rownames(var="Row.names")
+DC_In_Vitro_VS_In_Vivo <- merge(DC_In_Vitro_VS_In_Vivo,mean_CD11_In_Vitro, by= "row.names")
+DC_In_Vitro_VS_In_Vivo <- DC_In_Vitro_VS_In_Vivo %>% remove_rownames %>% column_to_rownames(var="Row.names")#12,747
+
+#Correlation matrix
+correlation_matrix <- cor(DC_In_Vitro_VS_In_Vivo,method="spearman")
+#correlation_matrix[lower.tri(correlation_matrix)] <- NA
+correlation_matrix <- subset(correlation_matrix, !rownames(correlation_matrix) %in% c("DC_LN","DC_Tumor"))
+correlation_matrix <- subset(correlation_matrix, select = -c(MoDC_48H_Wash,MoDC_6H,       MoDC_Naive,CD11_6H,CD11_Naive))
+pheatmap(correlation_matrix, fontsize_row=10,fontsize_col = 10)
+
+
+
+```
+
+
+```{r}
+############################T cells In vitro VS In Vivo Correlation Matrix ################################
+List_T_Cells_In_Vitro <- readRDS("C:\\Kfir_Thesis_Asaf_Madi\\Project_2 - BulkRNAseq\\T_Cells\\T_Cells.rds")
+List_T_Cells_In_Vivo <- readRDS("C:\\Kfir_Thesis_Asaf_Madi\\Project_2 - BulkRNAseq\\Tomer_Data\\T_Cells\\Results\\CD8_DLN_Tumor.rds")
+
+T_Cells_In_Vitro <- as.data.frame(assay(List_T_Cells_In_Vitro$Counts_Normalized_data$data))
+T_Cells_In_Vivo <- as.data.frame(assay(List_T_Cells_In_Vivo$Counts_Normalized_data$data))
+
+#In vitro T_Cells average
+mean_T_Cells_In_Vitro <- T_Cells_In_Vitro
+
+#T_PCD11_LCD11 mean
+mean_T_Cells_In_Vitro$T_PCD11_LCD11 <- rowMeans(mean_T_Cells_In_Vitro[, colnames(mean_T_Cells_In_Vitro) %in% c("T_PCD11_LCD11_1", "T_PCD11_LCD11_2", "T_PCD11_LCD11_3", "T_PCD11_LCD11_4")])
+mean_T_Cells_In_Vitro <- subset(mean_T_Cells_In_Vitro, select = -c(T_PCD11_LCD11_1, T_PCD11_LCD11_2, T_PCD11_LCD11_3, T_PCD11_LCD11_4))
+
+
+#T_PCD11_LMoDC mean
+mean_T_Cells_In_Vitro$T_PCD11_LMoDC <- rowMeans(mean_T_Cells_In_Vitro[, colnames(mean_T_Cells_In_Vitro) %in% c("T_PCD11_LMoDC_1", "T_PCD11_LMoDC_2", "T_PCD11_LMoDC_3", "T_PCD11_LMoDC_4")])
+mean_T_Cells_In_Vitro <- subset(mean_T_Cells_In_Vitro, select = -c(T_PCD11_LMoDC_1, T_PCD11_LMoDC_2, T_PCD11_LMoDC_3, T_PCD11_LMoDC_4))
+
+#T_PimedCD11c mean
+mean_T_Cells_In_Vitro$T_PimedCD11c <- rowMeans(mean_T_Cells_In_Vitro[, colnames(mean_T_Cells_In_Vitro) %in% c("T_PimedCD11c_1", "T_PimedCD11c_2", "T_PimedCD11c_3", "T_PimedCD11c_4")])
+mean_T_Cells_In_Vitro <- subset(mean_T_Cells_In_Vitro, select = -c(T_PimedCD11c_1, T_PimedCD11c_2, T_PimedCD11c_3, T_PimedCD11c_4))
+
+
+#T_PimedMoDC mean
+mean_T_Cells_In_Vitro$T_PimedMoDC <- rowMeans(mean_T_Cells_In_Vitro[, colnames(mean_T_Cells_In_Vitro) %in% c("T_PimedMoDC_1", "T_PimedMoDC_2", "T_PimedMoDC_3", "T_PimedMoDC_4")])
+mean_T_Cells_In_Vitro <- subset(mean_T_Cells_In_Vitro, select = -c(T_PimedMoDC_1, T_PimedMoDC_2, T_PimedMoDC_3, T_PimedMoDC_4))
+
+#Naive_T_cell mean
+mean_T_Cells_In_Vitro$Naive_T_cell <- rowMeans(mean_T_Cells_In_Vitro[, colnames(mean_T_Cells_In_Vitro) %in% c("Naive_T_cell_1", "Naive_T_cell_2", "Naive_T_cell_3", "Naive_T_cell_4")])
+mean_T_Cells_In_Vitro <- subset(mean_T_Cells_In_Vitro, select = -c(Naive_T_cell_1, Naive_T_cell_2, Naive_T_cell_3, Naive_T_cell_4))
+mean_T_Cells_In_Vitro <- subset(mean_T_Cells_In_Vitro, select = -c(T_cell_CD3_28_1, T_cell_CD3_28_2, T_cell_CD3_28_3, T_cell_CD3_28_4))
+
+
+
+#In vivo T_Cells average
+mean_T_Cells_In_Vivo <- T_Cells_In_Vivo
+
+#CD8_DLN mean
+mean_T_Cells_In_Vivo$CD8_DLN <- rowMeans(mean_T_Cells_In_Vivo[, colnames(mean_T_Cells_In_Vivo) %in% c("CD8_DLN_1", "CD8_DLN_2", "CD8_DLN_3")])
+mean_T_Cells_In_Vivo <- subset(mean_T_Cells_In_Vivo, select = -c(CD8_DLN_1, CD8_DLN_2, CD8_DLN_3))
+
+#CD8_Tumor mean
+mean_T_Cells_In_Vivo$CD8_Tumor <- rowMeans(mean_T_Cells_In_Vivo[, colnames(mean_T_Cells_In_Vivo) %in% c("CD8_Tumor_1", "CD8_Tumor_2", "CD8_Tumor_3")])
+mean_T_Cells_In_Vivo <- subset(mean_T_Cells_In_Vivo, select = -c(CD8_Tumor_1, CD8_Tumor_2, CD8_Tumor_3))
+
+
+#MERGE
+T_Cells_In_Vitro_VS_In_Vivo <- merge(mean_T_Cells_In_Vitro,mean_T_Cells_In_Vivo, by = "row.names") #16,623 genes
+#First column to row.names
+T_Cells_In_Vitro_VS_In_Vivo <- T_Cells_In_Vitro_VS_In_Vivo %>% remove_rownames %>% column_to_rownames(var="Row.names")
+
+
+#Correlation matrix
+correlation_matrix <- cor(T_Cells_In_Vitro_VS_In_Vivo,method="spearman")
+#correlation_matrix[lower.tri(correlation_matrix)] <- NA
+correlation_matrix <- subset(correlation_matrix, !rownames(correlation_matrix) %in% c("CD8_DLN","CD8_Tumor"))
+correlation_matrix <- subset(correlation_matrix, select = -c(T_PCD11_LCD11,T_PCD11_LMoDC,       T_PimedCD11c,T_PimedMoDC,Naive_T_cell))
+pheatmap(correlation_matrix, fontsize_row=10,fontsize_col = 10)
+
+
+
+```
+
+
+```{r}
+
+#######################################################################################
+############################## GSEA T cells In Vitro VS In Vivo Experiments #############################
+
+```
+
+```{r}
+# Creating my own signature list of in vitro experiments degs
+List_T_Cells_In_Vitro <- readRDS("C:\\Kfir_Thesis_Asaf_Madi\\Project_2 - BulkRNAseq\\T_Cells\\T_Cells.rds")
+
+
+#Filter by FDR < 0.000001
+LCD11_vs_Naive_in_vitro_res <- subset(List_T_Cells_In_Vitro$Counts_res_list$`LCD11 _vs_ Control`$deg_res_sig, padj < 0.000001)
+LMoDC_vs_Naive_in_vitro_res <- subset(List_T_Cells_In_Vitro$Counts_res_list$`LMoDC _vs_ Control`$deg_res_sig,  padj < 0.000001)
+PCD11_vs_Naive_in_vitro_res <- subset(List_T_Cells_In_Vitro$Counts_res_list$`PCD11 _vs_ Control`$deg_res_sig,  padj < 0.000001)
+PMoDC_vs_Naive_in_vitro_res <- subset(List_T_Cells_In_Vitro$Counts_res_list$`PMoDC _vs_ Control`$deg_res_sig,  padj < 0.000001)
+
+#Filter by top 300 FDR ascending order
+#LCD11_vs_Naive_in_vitro_res <- head(as.data.frame(List_T_Cells_In_Vitro$Counts_res_list$`LCD11 _vs_ Control`$deg_res_sig) %>% rownames_to_column('gene') %>% arrange(padj) %>% column_to_rownames('gene'),300)
+#LMoDC_vs_Naive_in_vitro_res <- head(as.data.frame(List_T_Cells_In_Vitro$Counts_res_list$`LMoDC _vs_ Control`$deg_res_sig) %>% rownames_to_column('gene') %>% arrange(padj) %>% column_to_rownames('gene'),300)
+#PCD11_vs_Naive_in_vitro_res <- head(as.data.frame(List_T_Cells_In_Vitro$Counts_res_list$`PCD11 _vs_ #Control`$deg_res_sig) %>% rownames_to_column('gene') %>% arrange(padj) %>% column_to_rownames('gene'),300)
+#PMoDC_vs_Naive_in_vitro_res <- head(as.data.frame(List_T_Cells_In_Vitro$Counts_res_list$`PMoDC _vs_ Control`$deg_res_sig,) %>% rownames_to_column('gene') %>% arrange(padj) %>% column_to_rownames('gene'),300)
+
+
+signatures_list_vs_Naive <- list()
+#LCD11_vs_Naive:
+signatures_list_vs_Naive <- append(signatures_list_vs_Naive, list(LCD11_vs_Naive_UP = row.names(subset(LCD11_vs_Naive_in_vitro_res,lgFC_LCD11_vs_Control > 0)))) #UP 
+signatures_list_vs_Naive <- append(signatures_list_vs_Naive, list(LCD11_vs_Naive_DOWN = row.names(subset(LCD11_vs_Naive_in_vitro_res,lgFC_LCD11_vs_Control < 0)))) # DOWN
+#LMoDC_vs_Naive:
+signatures_list_vs_Naive <- append(signatures_list_vs_Naive, list(LMoDC_vs_Naive_UP = row.names(subset(LMoDC_vs_Naive_in_vitro_res,lgFC_LMoDC_vs_Control > 0)))) #UP 
+signatures_list_vs_Naive <- append(signatures_list_vs_Naive, list(LMoDC_vs_Naive_DOWN = row.names(subset(LMoDC_vs_Naive_in_vitro_res,lgFC_LMoDC_vs_Control < 0)))) # DOWN
+#PCD11_vs_Naive
+signatures_list_vs_Naive <- append(signatures_list_vs_Naive, list(PCD11_vs_Naive_UP = row.names(subset(PCD11_vs_Naive_in_vitro_res,lgFC_PCD11_vs_Control > 0)))) #UP 
+signatures_list_vs_Naive <- append(signatures_list_vs_Naive, list(PCD11_vs_Naive_DOWN = row.names(subset(PCD11_vs_Naive_in_vitro_res,lgFC_PCD11_vs_Control < 0)))) # DOWN
+#PMoDC_vs_Naive
+signatures_list_vs_Naive <- append(signatures_list_vs_Naive, list(PMoDC_vs_Naive_UP = row.names(subset(PMoDC_vs_Naive_in_vitro_res,lgFC_PMoDC_vs_Control > 0)))) #UP 
+signatures_list_vs_Naive <- append(signatures_list_vs_Naive, list(PMoDC_vs_Naive_DOWN = row.names(subset(PMoDC_vs_Naive_in_vitro_res,lgFC_PMoDC_vs_Control < 0)))) # DOWN
+```
+
+```{r}
+# Creating my own signature list of in vitro experiments degs
+List_T_Cells_In_Vitro <- readRDS("C:\\Kfir_Thesis_Asaf_Madi\\Project_2 - BulkRNAseq\\T_Cells\\T_Cells.rds")
+
+
+
+#Filter by FDR < 0.000001
+LCD11_vs_CD28_in_vitro_res <- subset(List_T_Cells_In_Vitro$Counts_res_list$`LCD11 _vs_ CD3_CD28`$deg_res_sig, padj < 0.000001)
+LMoDC_vs_CD28_in_vitro_res <- subset(List_T_Cells_In_Vitro$Counts_res_list$`LMoDC _vs_ CD3_CD28`$deg_res_sig,  padj < 0.000001)
+PCD11_vs_CD28_in_vitro_res <- subset(List_T_Cells_In_Vitro$Counts_res_list$`PCD11 _vs_ CD3_CD28`$deg_res_sig,  padj < 0.000001)
+PMoDC_vs_CD28_in_vitro_res <- subset(List_T_Cells_In_Vitro$Counts_res_list$`PMoDC _vs_ CD3_CD28`$deg_res_sig,  padj < 0.000001)
+
+
+#Filter by top 300 FDR ascending order
+#LCD11_vs_CD28_in_vitro_res <- head(as.data.frame(List_T_Cells_In_Vitro$Counts_res_list$`LCD11 _vs_ CD3_CD28`$deg_res_sig) %>% rownames_to_column('gene') %>% arrange(padj) %>% column_to_rownames('gene'),300)
+#LMoDC_vs_CD28_in_vitro_res <- head(as.data.frame(List_T_Cells_In_Vitro$Counts_res_list$`LMoDC _vs_ CD3_CD28`$deg_res_sig) %>% rownames_to_column('gene') %>% arrange(padj) %>% column_to_rownames('gene'),300)
+#PCD11_vs_CD28_in_vitro_res <- head(as.data.frame(List_T_Cells_In_Vitro$Counts_res_list$`PCD11 _vs_ CD3_CD28`$deg_res_sig) %>% rownames_to_column('gene') %>% arrange(padj) %>% column_to_rownames('gene'),300)
+#PMoDC_vs_CD28_in_vitro_res <- head(as.data.frame(List_T_Cells_In_Vitro$Counts_res_list$`PMoDC _vs_ CD3_CD28`$deg_res_sig) %>% rownames_to_column('gene') %>% arrange(padj) %>% column_to_rownames('gene'),300)
+
+
+
+signatures_list_vs_CD28 <- list()
+#LCD11_vs_Naive:
+signatures_list_vs_CD28 <- append(signatures_list_vs_CD28, list(LCD11_vs_CD28_UP = row.names(subset(LCD11_vs_CD28_in_vitro_res,lgFC_LCD11_vs_CD3_CD28 > 0)))) #UP 
+signatures_list_vs_CD28 <- append(signatures_list_vs_CD28, list(LCD11_vs_CD28_DOWN = row.names(subset(LCD11_vs_CD28_in_vitro_res,lgFC_LCD11_vs_CD3_CD28 < 0)))) # DOWN
+#LMoDC_vs_Naive:
+signatures_list_vs_CD28 <- append(signatures_list_vs_CD28, list(LMoDC_vs_CD28_UP = row.names(subset(LMoDC_vs_CD28_in_vitro_res,lgFC_LMoDC_vs_CD3_CD28 > 0)))) #UP 
+signatures_list_vs_CD28 <- append(signatures_list_vs_CD28, list(LMoDC_vs_CD28_DOWN = row.names(subset(LMoDC_vs_CD28_in_vitro_res,lgFC_LMoDC_vs_CD3_CD28 < 0)))) # DOWN
+#PCD11_vs_Naive
+signatures_list_vs_CD28 <- append(signatures_list_vs_CD28, list(PCD11_vs_CD28_UP = row.names(subset(PCD11_vs_CD28_in_vitro_res,lgFC_PCD11_vs_CD3_CD28 > 0)))) #UP 
+signatures_list_vs_CD28 <- append(signatures_list_vs_CD28, list(PCD11_vs_CD28_DOWN = row.names(subset(PCD11_vs_CD28_in_vitro_res,lgFC_PCD11_vs_CD3_CD28 < 0)))) # DOWN
+#PMoDC_vs_Naive
+signatures_list_vs_CD28 <- append(signatures_list_vs_CD28, list(PMoDC_vs_CD28_UP = row.names(subset(PMoDC_vs_CD28_in_vitro_res,lgFC_PMoDC_vs_CD3_CD28 > 0)))) #UP 
+signatures_list_vs_CD28 <- append(signatures_list_vs_CD28, list(PMoDC_vs_CD28_DOWN = row.names(subset(PMoDC_vs_CD28_in_vitro_res,lgFC_PMoDC_vs_CD3_CD28 < 0)))) # DOWN
+```
+
+
+
+
+
+
+```{r}
+#T cells In Vivo rankings:
+List_T_Cells_In_Vivo <- readRDS("C:\\Kfir_Thesis_Asaf_Madi\\Project_2 - BulkRNAseq\\Tomer_Data\\T_Cells\\Results\\CD8_DLN_Tumor_In_Vivo.rds")
+
+T_Cells_In_Vivo_res <- List_T_Cells_In_Vivo$Counts_res_list$`CD8_Tumor _vs_ CD8_DLN`$deg_res
+
+rankings <- sign(T_Cells_In_Vivo_res$lgFC_CD8_Tumor_vs_CD8_DLN)*(-log10(T_Cells_In_Vivo_res$pvalue)) # we will use the signed p values from spatial DGE as ranking
+names(rankings) <- row.names(T_Cells_In_Vivo_res) # genes as names#
+
+rankings <- sort(rankings, decreasing = TRUE) # sort genes by ranking
+#plot(rankings)
+#hist(rankings, main = "Histogram of Gene Rankings", xlab = "Rankings")
+#density_plot <- density(rankings)
+#plot(density_plot, main = "Density Plot of Gene Rankings", xlab = "Rankings")
+#max(rankings)
+#min(rankings)
+
+
+```
+
+
+
+```{r}
+# For GSEA
+# Filter out the gmt files for KEGG, Reactome and GOBP
+my_genes <- row.names(T_Cells_In_Vivo_res)
+
+signatures_list_vs_Naive <- prepare_gmt(signatures_list_vs_Naive, my_genes, savefile = FALSE)
+
+## 4. Run GSEA ---------------------------------------------------------------
+# Easy peasy! Run fgsea with the pathways 
+GSEAres_Naive <- fgsea(pathways = signatures_list_vs_Naive, # List of gene sets to check
+                 stats = rankings,
+                 scoreType = 'std', # in this case we have both pos and neg rankings. if only pos or neg, set to 'pos', 'neg'
+                 nproc = 1,
+                 nPermSimple = 1200000, eps=0) # for parallelisation
+
+
+#saveRDS(GSEAres_Naive, ".\\GSEAres_Naive_Table.rds")
+#GSEAres_Naive <- readRDS(".\\GSEAres_Naive_Table.rds")
+
+GSEAres_Naive_top_300Sig <- GSEAres_Naive
+saveRDS(GSEAres_Naive_top_300Sig,".\\GSEAres_Naive_top_300Sig.rds")
+GSEAres_Naive_top_300Sig <- readRDS(".\\GSEAres_Naive_top_300Sig.rds")
+
+plotEnrichment(signatures_list_vs_Naive[[GSEAres_Naive[order(NES, decreasing = T), ][1]$pathway]],
+               rankings) + labs(title = GSEAres_Naive[order(NES, decreasing = T), ][1]$pathway)
+
+plotEnrichment(signatures_list_vs_Naive[[GSEAres_Naive[order(NES, decreasing = T), ][2]$pathway]],
+               rankings) + labs(title = GSEAres_Naive[order(NES, decreasing = T), ][2]$pathway)
+
+plotEnrichment(signatures_list_vs_Naive[[GSEAres_Naive[order(NES, decreasing = T), ][3]$pathway]],
+               rankings) + labs(title = GSEAres_Naive[order(NES, decreasing = T), ][3]$pathway)
+
+plotEnrichment(signatures_list_vs_Naive[[GSEAres_Naive[order(NES, decreasing = T), ][4]$pathway]],
+               rankings) + labs(title = GSEAres_Naive[order(NES, decreasing = T), ][4]$pathway)
+
+plotEnrichment(signatures_list_vs_Naive[[GSEAres_Naive[order(NES, decreasing = T), ][5]$pathway]],
+               rankings) + labs(title = GSEAres_Naive[order(NES, decreasing = T), ][5]$pathway)
+
+plotEnrichment(signatures_list_vs_Naive[[GSEAres_Naive[order(NES, decreasing = T), ][6]$pathway]],
+               rankings) + labs(title = GSEAres_Naive[order(NES, decreasing = T), ][6]$pathway)
+
+plotEnrichment(signatures_list_vs_Naive[[GSEAres_Naive[order(NES, decreasing = T), ][7]$pathway]],
+               rankings) + labs(title = GSEAres_Naive[order(NES, decreasing = T), ][7]$pathway)
+
+plotEnrichment(signatures_list_vs_Naive[[GSEAres_Naive[order(NES, decreasing = T), ][8]$pathway]],
+               rankings) + labs(title = GSEAres_Naive[order(NES, decreasing = T), ][8]$pathway)
+
+
+
+
+
+```
+
+
+```{r}
+
+# Filter out the gmt files for KEGG, Reactome and GOBP
+my_genes <- row.names(T_Cells_In_Vivo_res)
+
+signatures_list_vs_CD28 <- prepare_gmt(signatures_list_vs_CD28, my_genes, savefile = FALSE)
+
+## 4. Run GSEA ---------------------------------------------------------------
+# Easy peasy! Run fgsea with the pathways 
+GSEAres_CD28 <- fgsea(pathways = signatures_list_vs_CD28, # List of gene sets to check
+                 stats = rankings,
+                 scoreType = 'std', # in this case we have both pos and neg rankings. if only pos or neg, set to 'pos', 'neg'
+                 nproc = 1) # for parallelisation
+
+#saveRDS(GSEAres_CD28, ".\\GSEAres_CD28_Table.rds")
+#GSEAres_CD28 <- readRDS(".\\GSEAres_CD28_Table.rds")
+
+GSEAres_CD28_top_300Sig <- GSEAres_CD28
+saveRDS(GSEAres_CD28_top_300Sig, ".\\GSEAres_CD28_top_300Sig.rds")
+GSEAres_CD28_top_300Sig <- readRDS(".\\GSEAres_CD28_top_300Sig.rds")
+
+
+plotEnrichment(signatures_list_vs_CD28[[GSEAres_CD28[order(NES, decreasing = T), ][1]$pathway]],
+               rankings) + labs(title = GSEAres_CD28[order(NES, decreasing = T), ][1]$pathway)
+
+plotEnrichment(signatures_list_vs_CD28[[GSEAres_CD28[order(NES, decreasing = T), ][2]$pathway]],
+               rankings) + labs(title = GSEAres_CD28[order(NES, decreasing = T), ][2]$pathway)
+
+plotEnrichment(signatures_list_vs_CD28[[GSEAres_CD28[order(NES, decreasing = T), ][3]$pathway]],
+               rankings) + labs(title = GSEAres_CD28[order(NES, decreasing = T), ][3]$pathway)
+
+plotEnrichment(signatures_list_vs_CD28[[GSEAres_CD28[order(NES, decreasing = T), ][4]$pathway]],
+               rankings) + labs(title = GSEAres_CD28[order(NES, decreasing = T), ][4]$pathway)
+
+plotEnrichment(signatures_list_vs_CD28[[GSEAres_CD28[order(NES, decreasing = T), ][5]$pathway]],
+               rankings) + labs(title = GSEAres_CD28[order(NES, decreasing = T), ][5]$pathway)
+
+plotEnrichment(signatures_list_vs_CD28[[GSEAres_CD28[order(NES, decreasing = T), ][6]$pathway]],
+               rankings) + labs(title = GSEAres_CD28[order(NES, decreasing = T), ][6]$pathway)
+
+plotEnrichment(signatures_list_vs_CD28[[GSEAres_CD28[order(NES, decreasing = T), ][7]$pathway]],
+               rankings) + labs(title = GSEAres_CD28[order(NES, decreasing = T), ][7]$pathway)
+
+plotEnrichment(signatures_list_vs_CD28[[GSEAres_CD28[order(NES, decreasing = T), ][8]$pathway]],
+               rankings) + labs(title = GSEAres_CD28[order(NES, decreasing = T), ][8]$pathway)
+
+```
+
+
+
+```{r}
+
+#Scatter plot
+GSEAres_Naive <- GSEAres_Naive[order(row.names(GSEAres_CD28)),]
+
+data_to_Scatter_NES <- data.frame("NES_Naive" = GSEAres_Naive$NES, "NES_CD28" = GSEAres_CD28$NES,row.names = str_remove(GSEAres_CD28$pathway, "vs_CD28_"))
+
+data_to_Scatter_ES <- data.frame("ES_Naive" = GSEAres_Naive$ES, "ES_CD28" = GSEAres_CD28$ES,row.names = str_remove(GSEAres_CD28$pathway, "vs_CD28_"))
+
+
+#NES SP
+scatter_plot_NES <- ggplot(data_to_Scatter_NES, aes(NES_Naive,NES_CD28)) +
+  geom_point() +
+  geom_text_repel(aes(label = row.names(data_to_Scatter_NES))) +  geom_smooth(method=lm, linetype="dashed",se=F,color="darkred") + theme_bw() +
+  theme(axis.line = element_line(colour = "black"),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.border = element_blank(),
+    panel.background = element_blank()) 
+
+ggMarginal(scatter_plot_NES,type="boxplot", size=12)
+
+
+#ES SP
+scatter_plot_ES <- ggplot(data_to_Scatter_ES, aes(ES_Naive,ES_CD28)) +
+  geom_point() +
+  geom_text_repel(aes(label = row.names(data_to_Scatter_ES))) +  geom_smooth(method=lm, linetype="dashed",se=F,color="darkred") + theme_bw() +
+  theme(axis.line = element_line(colour = "black"),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.border = element_blank(),
+    panel.background = element_blank()) 
+
+ggMarginal(scatter_plot_ES,type="boxplot", size=12)
+```
+
+
+```{r}
+#Top 300 signatures
+#Scatter plot
+GSEAres_Naive_top_300Sig <- GSEAres_Naive_top_300Sig[order(row.names(GSEAres_CD28_top_300Sig)),]
+
+data_to_Scatter_NES_top300 <- data.frame("NES_Naive" = GSEAres_Naive_top_300Sig$NES, "NES_CD28" = GSEAres_CD28_top_300Sig$NES,row.names = str_remove(GSEAres_CD28_top_300Sig$pathway, "vs_CD28_"))
+
+data_to_Scatter_ES_top300 <- data.frame("ES_Naive" = GSEAres_Naive_top_300Sig$ES, "ES_CD28" = GSEAres_CD28_top_300Sig$ES,row.names = str_remove(GSEAres_CD28_top_300Sig$pathway, "vs_CD28_"))
+
+
+#NES SP
+scatter_plot_NES <- ggplot(data_to_Scatter_NES_top300, aes(NES_Naive,NES_CD28)) +
+  geom_point() +
+  geom_text_repel(aes(label = row.names(data_to_Scatter_NES_top300))) +  geom_smooth(method=lm, linetype="dashed",se=F,color="darkred") + theme_bw() +
+  theme(axis.line = element_line(colour = "black"),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.border = element_blank(),
+    panel.background = element_blank()) 
+
+ggMarginal(scatter_plot_NES,type="boxplot", size=12,fill = "white",color = "grey")
+
+
+#ES SP
+scatter_plot_ES <- ggplot(data_to_Scatter_ES_top300, aes(ES_Naive,ES_CD28)) +
+  geom_point() +
+  geom_text_repel(aes(label = row.names(data_to_Scatter_ES_top300))) +  geom_smooth(method=lm, linetype="dashed",se=F,color="darkred") + theme_bw() +
+  theme(axis.line = element_line(colour = "black"),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.border = element_blank(),
+    panel.background = element_blank()) 
+
+ggMarginal(scatter_plot_ES,type="boxplot", size=12,fill = "white",color = "grey")
+
+```
+
+
+
+
+```{r}
+
+#######################################################################################
+############################## GSEA DC In Vitro VS In Vivo Experiments #############################
+
+```
+
+
+```{r}
+#moDC Signatures
+List_moDC_In_Vitro <- readRDS("C:\\Kfir_Thesis_Asaf_Madi\\Project_2 - BulkRNAseq\\MoDC\\With_Wash\\Without_Naive_MoDC_M4_Sample\\MoDC_Without_Naive_M4.rds")
+
+
+
+#Filter by FDR < 0.000001
+moDC_6H_vs_Naive_in_vitro_res <- subset(List_moDC_In_Vitro$Counts_res_list$`Treatment_6H _vs_ Control`$deg_res_sig, padj < 0.000001)
+moDC_48H_vs_Naive_in_vitro_res <- subset(List_moDC_In_Vitro$Counts_res_list$`Treatment_48H_Wash _vs_ Control`$deg_res_sig, padj < 0.0001) #too few genes
+moDC_48H_vs_6H_in_vitro_res <- subset(List_moDC_In_Vitro$Counts_res_list$`Treatment_48H_Wash _vs_ Treatment_6H`$deg_res_sig, padj < 0.000001)
+
+
+
+signatures_list_moDC <- list()
+#6H_vs_Naive:
+signatures_list_moDC <- append(signatures_list_moDC, list("MoDC_6H_vs_Naive_UP" = row.names(subset(moDC_6H_vs_Naive_in_vitro_res,lgFC_Treatment_6H_vs_Control > 0)))) #UP 
+signatures_list_moDC <- append(signatures_list_moDC, list("MoDC_6H_vs_Naive_DOWN" = row.names(subset(moDC_6H_vs_Naive_in_vitro_res,lgFC_Treatment_6H_vs_Control < 0)))) # DOWN
+
+#48H_vs_Naive:
+signatures_list_moDC <- append(signatures_list_moDC, list("MoDC_48H_vs_Naive_UP" = row.names(subset(moDC_48H_vs_Naive_in_vitro_res,lgFC_Treatment_48H_Wash_vs_Control > 0)))) #UP 
+signatures_list_moDC <- append(signatures_list_moDC, list("MoDC_48H_vs_Naive_DOWN" = row.names(subset(moDC_48H_vs_Naive_in_vitro_res,lgFC_Treatment_48H_Wash_vs_Control < 0)))) # DOWN
+
+#48H_vs_6H:
+signatures_list_moDC <- append(signatures_list_moDC, list("MoDC_48H_vs_6H_UP" = row.names(subset(moDC_48H_vs_6H_in_vitro_res,lgFC_Treatment_48H_Wash_vs_Treatment_6H > 0)))) #UP 
+signatures_list_moDC <- append(signatures_list_moDC, list("MoDC_48H_vs_6H_DOWN" = row.names(subset(moDC_48H_vs_6H_in_vitro_res,lgFC_Treatment_48H_Wash_vs_Treatment_6H < 0)))) # DOWN
+
+
+
+
+
+```
+
+
+
+
+
+```{r}
+#CD11
+List_CD11_In_Vitro <- readRDS("C:\\Kfir_Thesis_Asaf_Madi\\Project_2 - BulkRNAseq\\CD11c\\CD11c_6H_VS_CD11c_Naive.rds")
+
+
+#Filter by FDR < 0.000001
+CD11_6H_vs_Naive_in_vitro_res <- subset(List_CD11_In_Vitro$Counts_res_list$`Treatment_6H _vs_ Control`$deg_res_sig, padj < 0.000001)
+
+
+signatures_list_CD11 <- list()
+
+#CD11 6H_vs_Naive:
+signatures_list_CD11 <- append(signatures_list_CD11, list("CD11_6H_vs_Naive_UP" = row.names(subset(CD11_6H_vs_Naive_in_vitro_res,lgFC_Treatment_6H_vs_Control > 0)))) #UP 
+signatures_list_CD11 <- append(signatures_list_CD11, list("CD11_6H_vs_Naive_DOWN" = row.names(subset(CD11_6H_vs_Naive_in_vitro_res,lgFC_Treatment_6H_vs_Control < 0)))) # DOWN
+
+```
+
+
+```{r}
+#moDC vs CD11 6H
+List_moDC_CD11c_In_Vitro_6H <- readRDS("C:\\Kfir_Thesis_Asaf_Madi\\Project_2 - BulkRNAseq\\MoDC_CD11c\\New\\MoDC_CD11c_MoDC_Treatment_6HvsCD11c_Treatment_6H.rds")
+
+#Filter by FDR < 0.000001
+moDC_CD11c_6H_in_vitro_res <- subset(List_moDC_CD11c_In_Vitro_6H$`MoDC_Treatment_6H _vs_ CD11c_Treatment_6H`$deg_res_sig, padj < 0.000001)
+
+
+
+```
+
+```{r}
+#moDC vs CD11 Naive
+
+List_moDC_CD11c_In_Vitro_Naive <- readRDS("C:\\Kfir_Thesis_Asaf_Madi\\Project_2 - BulkRNAseq\\MoDC_CD11c\\New\\MoDC_CD11c_MoDC_ControlvsCD11c_Control.rds")
+
+#Filter by FDR < 0.000001
+moDC_CD11c_Naive_in_vitro_res <- subset(List_moDC_CD11c_In_Vitro_Naive$`MoDC_Control _vs_ CD11c_Control`$deg_res_sig, padj < 0.000001)
+
+
+
+signatures_list_moDC_CD11 <- list()
+
+#moDC CD11 6H:
+signatures_list_moDC_CD11 <- append(signatures_list_moDC_CD11, list("moDC_6H_CD11_6H_UP" = row.names(subset(moDC_CD11c_6H_in_vitro_res,lgFC_MoDC_Treatment_6H_vs_CD11c_Treatment_6H > 0)))) #UP 
+signatures_list_moDC_CD11 <- append(signatures_list_moDC_CD11, list("moDC_6H_CD11_6H_DOWN" = row.names(subset(moDC_CD11c_6H_in_vitro_res,lgFC_MoDC_Treatment_6H_vs_CD11c_Treatment_6H < 0)))) # DOWN
+
+#moDC CD11 Naive:
+signatures_list_moDC_CD11 <- append(signatures_list_moDC_CD11, list("moDC_Naive_CD11_Naive_UP" = row.names(subset(moDC_CD11c_Naive_in_vitro_res,lgFC_MoDC_Control_vs_CD11c_Control > 0)))) #UP 
+signatures_list_moDC_CD11 <- append(signatures_list_moDC_CD11, list("moDC_Naive_CD11_Naive_DOWN" = row.names(subset(moDC_CD11c_Naive_in_vitro_res,lgFC_MoDC_Control_vs_CD11c_Control < 0)))) # DOWN
+
+
+```
+
+```{r}
+
+merge_list_moDC_CD11 <- c(signatures_list_moDC,signatures_list_CD11,signatures_list_moDC_CD11)
+```
+
+```{r}
+#In Vivo rankings
+List_moDC_In_Vivo <- readRDS(".\\moDC\\Results\\moDC_LN_Tumor_In_Vivo.rds")
+
+
+moDC_In_Vivo_res <- List_moDC_In_Vivo$Counts_res_list$`moDC_Tumor _vs_ moDC_LN`$deg_res
+
+rankings <- sign(moDC_In_Vivo_res$lgFC_moDC_Tumor_vs_moDC_LN)*(-log10(moDC_In_Vivo_res$pvalue)) # we will use the signed p values from spatial DGE as ranking
+names(rankings) <- row.names(moDC_In_Vivo_res) # genes as names#
+
+rankings <- sort(rankings, decreasing = TRUE) # sort genes by ranking
+
+
+```
+
+```{r}
+# For GSEA
+# Filter out the gmt files for KEGG, Reactome and GOBP
+my_genes <- row.names(moDC_In_Vivo_res)
+
+merge_list_moDC_CD11 <- prepare_gmt(merge_list_moDC_CD11, my_genes, savefile = FALSE)
+
+## 4. Run GSEA ---------------------------------------------------------------
+# Easy peasy! Run fgsea with the pathways 
+GSEAres_moDC <- fgsea(pathways = merge_list_moDC_CD11, # List of gene sets to check
+                 stats = rankings,
+                 scoreType = 'std', # in this case we have both pos and neg rankings. if only pos or neg, set to 'pos', 'neg'
+                 nproc = 1,
+                 nPermSimple = 1200000, eps=0) # for parallelisation
+
+saveRDS(GSEAres_moDC,".\\GSEAres_moDC.rds")
+
+GSEAres_moDC <- readRDS(".\\GSEAres_moDC.rds")
+
+plotEnrichment(merge_list_moDC_CD11[[GSEAres_moDC[order(NES, decreasing = T), ][1]$pathway]],rankings) + labs(title = GSEAres_moDC[order(NES, decreasing = T), ][1]$pathway)
+ggsave(".\\MoDC_DCs_vs_In_vivoRanks_Results\\GSEA_NES_Enrichment_Ranking_TumorvsDLN_moDC_6H_CD11_6H_UP.jpg", width = 7, height = 5, dpi = 300)
+
+plotEnrichment(merge_list_moDC_CD11[[GSEAres_moDC[order(NES, decreasing = T), ][2]$pathway]],rankings) + labs(title = GSEAres_moDC[order(NES, decreasing = T), ][2]$pathway)
+ggsave(".\\MoDC_DCs_vs_In_vivoRanks_Results\\GSEA_NES_Enrichment_Ranking_TumorvsDLN_moDC_Naive_CD11_Naive_UP.jpg", width = 7, height = 5, dpi = 300)
+
+plotEnrichment(merge_list_moDC_CD11[[GSEAres_moDC[order(NES, decreasing = T), ][12]$pathway]],rankings) + labs(title = GSEAres_moDC[order(NES, decreasing = T), ][12]$pathway)
+ggsave(".\\MoDC_DCs_vs_In_vivoRanks_Results\\GSEA_NES_Enrichment_Ranking_TumorvsDLN_moDC_6H_CD11_6H_DOWN.jpg", width = 7, height = 5, dpi = 300)
+
+plotEnrichment(merge_list_moDC_CD11[[GSEAres_moDC[order(NES, decreasing = T), ][11]$pathway]],rankings) + labs(title = GSEAres_moDC[order(NES, decreasing = T), ][11]$pathway)
+ggsave(".\\MoDC_DCs_vs_In_vivoRanks_Results\\GSEA_NES_Enrichment_Ranking_TumorvsDLN_moDC_Naive_CD11_Naive_DOWN.jpg", width = 7, height = 5, dpi = 300)
+
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+######################NEW APPROACH FOR GSEA ######################################
+
+#Rankings In Vivo DLN CD8 vs Tumor CD8
+List_T_Cells_In_Vivo <- readRDS("C:\\Kfir_Thesis_Asaf_Madi\\Project_2 - BulkRNAseq\\Tomer_Data\\T_Cells\\Results\\CD8_DLN_Tumor_In_Vivo.rds")
+
+T_Cells_In_Vivo_res <- List_T_Cells_In_Vivo$Counts_res_list$`CD8_Tumor _vs_ CD8_DLN`$deg_res
+
+rankings_In_Vivo <- sign(T_Cells_In_Vivo_res$lgFC_CD8_Tumor_vs_CD8_DLN)*(-log10(T_Cells_In_Vivo_res$pvalue)) # we will use the signed p values from spatial DGE as ranking
+names(rankings_In_Vivo) <- row.names(T_Cells_In_Vivo_res) # genes as names#
+
+rankings_In_Vivo <- sort(rankings_In_Vivo, decreasing = TRUE) # sort genes by ranking
+
+
+
+
+
+#Rankings In Vitro CD28 T cells vs Naive T cells
+List_T_Cells_In_Vitro <- readRDS("C:\\Kfir_Thesis_Asaf_Madi\\Project_2 - BulkRNAseq\\T_Cells\\T_Cells.rds")
+
+T_Cells_In_Vitro_res <- List_T_Cells_In_Vitro$Counts_res_list$`CD3_CD28 _vs_ Control`$deg_res
+
+rankings_In_Vitro <- sign(T_Cells_In_Vitro_res$lgFC_CD3_CD28_vs_Control)*(-log10(T_Cells_In_Vitro_res$pvalue)) # we will use the signed p values from spatial DGE as ranking
+names(rankings_In_Vitro) <- row.names(T_Cells_In_Vitro_res) # genes as names#
+
+rankings_In_Vitro <- sort(rankings_In_Vitro, decreasing = TRUE) # sort genes by ranking
+
+
+#Signatures LMoDC_vs_PCD11; LMoDC_vs_PMoDC; LCD11_vs_PCD11; LCD11_vs_PMoDC
+#Filter by FDR < 0.000001
+LMoDC_vs_PCD11_in_vitro_res <- subset(List_T_Cells_In_Vitro$Counts_res_list$`LMoDC _vs_ PCD11`$deg_res_sig, padj < 0.000001)
+
+LMoDC_vs_PMoDC_in_vitro_res <- subset(List_T_Cells_In_Vitro$Counts_res_list$`LMoDC _vs_ PMoDC`$deg_res_sig, padj < 0.000001)
+
+LCD11_vs_PCD11_in_vitro_res <- subset(List_T_Cells_In_Vitro$Counts_res_list$`LCD11 _vs_ PCD11`$deg_res_sig, padj < 0.000001)
+
+LCD11_vs_PMoDC_in_vitro_res <- subset(List_T_Cells_In_Vitro$Counts_res_list$`LCD11 _vs_ PMoDC`$deg_res_sig, padj < 0.000001)
+
+
+
+
+signatures_list_In_Vitro_T_Cells <- list()
+#LMoDC_vs_PCD11:
+signatures_list_In_Vitro_T_Cells <- append(signatures_list_In_Vitro_T_Cells, list(LMoDC_vs_PCD11_UP = row.names(subset(LMoDC_vs_PCD11_in_vitro_res,lgFC_LMoDC_vs_PCD11 > 0)))) #UP 
+signatures_list_In_Vitro_T_Cells <- append(signatures_list_In_Vitro_T_Cells, list(LMoDC_vs_PCD11_DOWN = row.names(subset(LMoDC_vs_PCD11_in_vitro_res,lgFC_LMoDC_vs_PCD11 < 0)))) # DOWN
+
+#LMoDC_vs_PMoDC
+signatures_list_In_Vitro_T_Cells <- append(signatures_list_In_Vitro_T_Cells, list(LMoDC_vs_PMoDC_UP = row.names(subset(LMoDC_vs_PMoDC_in_vitro_res,lgFC_LMoDC_vs_PMoDC > 0)))) #UP 
+signatures_list_In_Vitro_T_Cells <- append(signatures_list_In_Vitro_T_Cells, list(LMoDC_vs_PMoDC_DOWN = row.names(subset(LMoDC_vs_PMoDC_in_vitro_res,lgFC_LMoDC_vs_PMoDC < 0)))) # DOWN
+
+#LCD11_vs_PCD11
+signatures_list_In_Vitro_T_Cells <- append(signatures_list_In_Vitro_T_Cells, list(LCD11_vs_PCD11_UP = row.names(subset(LCD11_vs_PCD11_in_vitro_res,lgFC_LCD11_vs_PCD11 > 0)))) #UP 
+signatures_list_In_Vitro_T_Cells <- append(signatures_list_In_Vitro_T_Cells, list(LCD11_vs_PCD11_DOWN = row.names(subset(LCD11_vs_PCD11_in_vitro_res,lgFC_LCD11_vs_PCD11 < 0)))) # DOWN
+
+#LCD11_vs_PMoDC
+signatures_list_In_Vitro_T_Cells <- append(signatures_list_In_Vitro_T_Cells, list(LCD11_vs_PMoDC_UP = row.names(subset(LCD11_vs_PMoDC_in_vitro_res,lgFC_LCD11_vs_PMoDC > 0)))) #UP 
+signatures_list_In_Vitro_T_Cells <- append(signatures_list_In_Vitro_T_Cells, list(LCD11_vs_PMoDC_DOWN = row.names(subset(LCD11_vs_PMoDC_in_vitro_res,lgFC_LCD11_vs_PMoDC < 0)))) # DOWN
+
+
+
+# For GSEA
+# Filter out the gmt files for KEGG, Reactome and GOBP
+In_Vivo_genes <- names(rankings_In_Vivo)
+
+signatures_list_In_Vitro_T_Cells_gmt_vivo <- prepare_gmt(signatures_list_In_Vitro_T_Cells, In_Vivo_genes, savefile = FALSE)
+
+GSEAres_rankings_In_Vivo <- readRDS(".\\GSEAres_rankings_In_Vivo.rds")
+
+if (is.null(GSEAres_rankings_In_Vivo)) {
+## 4. Run GSEA ---------------------------------------------------------------
+# Easy peasy! Run fgsea with the pathways 
+GSEAres_rankings_In_Vivo <- fgsea(pathways = signatures_list_In_Vitro_T_Cells_gmt_vivo, # List of gene sets to check
+                 stats = rankings_In_Vivo,
+                 scoreType = 'std', # in this case we have both pos and neg rankings. if only pos or neg, set to 'pos', 'neg'
+                 nproc = 1,
+                 nPermSimple = 1200000, eps=0) # for parallelisation
+
+saveRDS(GSEAres_rankings_In_Vivo,".\\GSEAres_rankings_In_Vivo.rds")
+}
+
+# Filter out the gmt files for KEGG, Reactome and GOBP
+In_Vitro_genes <- names(rankings_In_Vitro)
+
+signatures_list_In_Vitro_T_Cells_gmt_vtro <- prepare_gmt(signatures_list_In_Vitro_T_Cells, In_Vitro_genes, savefile = FALSE)
+
+GSEAres_rankings_In_Vitro <- readRDS(".\\GSEAres_rankings_In_Vitro.rds")
+
+if (is.null(GSEAres_rankings_In_Vitro)) {
+## 4. Run GSEA ---------------------------------------------------------------
+# Easy peasy! Run fgsea with the pathways 
+GSEAres_rankings_In_Vitro <- fgsea(pathways = signatures_list_In_Vitro_T_Cells_gmt_vtro, # List of gene sets to check
+                 stats = rankings_In_Vitro,
+                 scoreType = 'std', # in this case we have both pos and neg rankings. if only pos or neg, set to 'pos', 'neg'
+                 nproc = 1,
+                 nPermSimple = 1200000, eps=0) # for parallelisation
+
+saveRDS(GSEAres_rankings_In_Vitro,".\\GSEAres_rankings_In_Vitro.rds")
+}
+
+
+GSEAres_rankings_In_Vivo <- GSEAres_rankings_In_Vivo[order(row.names(GSEAres_rankings_In_Vitro)),]
+
+LM_Graph_df <- data.frame("Tumor_DL_NES" = GSEAres_rankings_In_Vivo$NES, "CD28_Naive_NES" = GSEAres_rankings_In_Vitro$NES, row.names = GSEAres_rankings_In_Vitro$pathway)
+
+#NES SP(Scatter Plot)
+scatter_plot_NES <- ggplot(LM_Graph_df, aes(Tumor_DL_NES,CD28_Naive_NES)) +
+  geom_point() +
+  scale_x_continuous(breaks = round(seq(min(LM_Graph_df$Tumor_DL_NES), max(LM_Graph_df$Tumor_DL_NES), by = 0.5),1)) +
+  scale_y_continuous(breaks = round(seq(min(LM_Graph_df$CD28_Naive_NES), max(LM_Graph_df$CD28_Naive_NES), by = 0.5),1)) + 
+  geom_text_repel(aes(label = row.names(LM_Graph_df)), size = 3.2) +  geom_smooth(method=lm, linetype="dashed",se=F,color="darkred") + theme_bw() +
+  theme(axis.line = element_line(colour = "black"),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.border = element_blank(),
+    panel.background = element_blank()) 
+
+ggMarginal(scatter_plot_NES,type="boxplot", size=12,fill = "white",color = "grey")
+ggsave(".\\In_Vitro_VS_In_Vivo_Results\\GSEA_NES_Comparison_CD8vsNaive_VS_TumorvsDL.jpg", width = 7, height = 5, dpi = 300)
+#NES Only UP
+
+LM_Graph_df_UP <- LM_Graph_df %>% filter(grepl("_UP$", rownames(LM_Graph_df)))
+
+scatter_plot_NES_UP <- ggplot(LM_Graph_df_UP, aes(Tumor_DL_NES,CD28_Naive_NES)) +
+  geom_point() +
+  scale_x_continuous(breaks = round(seq(min(LM_Graph_df_UP$Tumor_DL_NES), max(LM_Graph_df_UP$Tumor_DL_NES), by = 0.1),1)) +
+  scale_y_continuous(breaks = round(seq(min(LM_Graph_df_UP$CD28_Naive_NES), max(LM_Graph_df_UP$CD28_Naive_NES), by = 0.1),1)) + 
+  geom_text_repel(aes(label = row.names(LM_Graph_df_UP)), size = 3.2) +  
+  #geom_smooth(method=lm, linetype="dashed",se=F,color="darkred") +
+  theme_bw() +
+  theme(axis.line = element_line(colour = "black"),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.border = element_blank(),
+    panel.background = element_blank()) 
+
+scatter_plot_NES_UP <- ggMarginal(scatter_plot_NES_UP,type="boxplot", size=12,fill = "white",color = "grey")
+scatter_plot_NES_UP
+ggsave(".\\In_Vitro_VS_In_Vivo_Results\\GSEA_NES_Comparison_CD8vsNaive_VS_TumorvsDL_4_Highest.jpg", width = 7, height = 5, dpi = 300)
+
+
+#In vitro enrichment in signatures:
+plotEnrichment(signatures_list_In_Vitro_T_Cells_gmt_vtro[[GSEAres_rankings_In_Vitro[order(NES, decreasing = T), ][1]$pathway]],
+               rankings_In_Vitro) + labs(title = GSEAres_rankings_In_Vitro[order(NES, decreasing = T), ][1]$pathway)
+ggsave(".\\In_Vitro_VS_In_Vivo_Results\\GSEA_NES_Enrichment_Ranking_CD28vsNaive_LMoDC_vs_PCD11_UP.jpg", width = 7, height = 5, dpi = 300)
+
+
+
+plotEnrichment(signatures_list_In_Vitro_T_Cells_gmt_vtro[[GSEAres_rankings_In_Vitro[order(NES, decreasing = T), ][2]$pathway]],
+               rankings_In_Vitro) + labs(title = GSEAres_rankings_In_Vitro[order(NES, decreasing = T), ][2]$pathway)
+ggsave(".\\In_Vitro_VS_In_Vivo_Results\\GSEA_NES_Enrichment_Ranking_CD28vsNaive_LMoDC_vs_PMoDC_UP.jpg", width = 7, height = 5, dpi = 300)
+
+
+plotEnrichment(signatures_list_In_Vitro_T_Cells_gmt_vtro[[GSEAres_rankings_In_Vitro[order(NES, decreasing = T), ][3]$pathway]],
+               rankings_In_Vitro) + labs(title = GSEAres_rankings_In_Vitro[order(NES, decreasing = T), ][3]$pathway)
+ggsave(".\\In_Vitro_VS_In_Vivo_Results\\GSEA_NES_Enrichment_Ranking_CD28vsNaive_LCD11_vs_PMoDC_UP.jpg", width = 7, height = 5, dpi = 300)
+
+
+plotEnrichment(signatures_list_In_Vitro_T_Cells_gmt_vtro[[GSEAres_rankings_In_Vitro[order(NES, decreasing = T), ][4]$pathway]],rankings_In_Vitro) + labs(title = GSEAres_rankings_In_Vitro[order(NES, decreasing = T), ][4]$pathway)
+ggsave(".\\In_Vitro_VS_In_Vivo_Results\\GSEA_NES_Enrichment_Ranking_CD28vsNaive_LCD11_vs_PCD11_UP.jpg", width = 7, height = 5, dpi = 300)
+
+
+#In vivo enrichment in signatures
+
+plotEnrichment(signatures_list_In_Vitro_T_Cells_gmt_vivo[[GSEAres_rankings_In_Vivo[order(NES, decreasing = T), ][1]$pathway]],
+               rankings_In_Vivo) + labs(title = GSEAres_rankings_In_Vivo[order(NES, decreasing = T), ][1]$pathway)
+ggsave(".\\In_Vitro_VS_In_Vivo_Results\\GSEA_NES_Enrichment_Ranking_TumorvsDLN_LCD11_vs_PCD11_UP.jpg", width = 7, height = 5, dpi = 300)
+
+
+
+plotEnrichment(signatures_list_In_Vitro_T_Cells_gmt_vivo[[GSEAres_rankings_In_Vivo[order(NES, decreasing = T), ][2]$pathway]],
+               rankings_In_Vivo) + labs(title = GSEAres_rankings_In_Vivo[order(NES, decreasing = T), ][2]$pathway)
+ggsave(".\\In_Vitro_VS_In_Vivo_Results\\GSEA_NES_Enrichment_Ranking_TumorvsDLN_LCD11_vs_PMoDC_UP.jpg", width = 7, height = 5, dpi = 300)
+
+
+plotEnrichment(signatures_list_In_Vitro_T_Cells_gmt_vivo[[GSEAres_rankings_In_Vivo[order(NES, decreasing = T), ][3]$pathway]],
+               rankings_In_Vivo) + labs(title = GSEAres_rankings_In_Vivo[order(NES, decreasing = T), ][3]$pathway)
+ggsave(".\\In_Vitro_VS_In_Vivo_Results\\GSEA_NES_Enrichment_Ranking_TumorvsDLN_LMoDC_vs_PCD11_UP.jpg", width = 7, height = 5, dpi = 300)
+
+
+plotEnrichment(signatures_list_In_Vitro_T_Cells_gmt_vivo[[GSEAres_rankings_In_Vivo[order(NES, decreasing = T), ][4]$pathway]],rankings_In_Vivo) + labs(title = GSEAres_rankings_In_Vivo[order(NES, decreasing = T), ][4]$pathway)
+ggsave(".\\In_Vitro_VS_In_Vivo_Results\\GSEA_NES_Enrichment_Ranking_TumorvsDLN_LMoDC_vs_PMoDC_UP.jpg", width = 7, height = 5, dpi = 300)
+
+
+
+```
