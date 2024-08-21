@@ -1,0 +1,769 @@
+---
+title: "Project2_BulkRNA_InVivo"
+author: "Kfir Inbal"
+date: "2024-01-02"
+output: html_document
+---
+
+```{r}
+#Loading libraries and setting working directory
+setwd("C:\\Kfir_Thesis_Asaf_Madi\\Project_2 - BulkRNAseq\\Tomer_Data")
+library(DESeq2)
+library(dplyr)
+library(dbplyr)
+library(tibble)
+library(ggplot2)
+library(reticulate)
+library(tidyverse)
+library(plyr)
+library(RColorBrewer)
+library(ggsignif)
+library(patchwork)
+library(sleepwalk)
+library(gridExtra)
+library(janitor)
+library(purrr)
+library(ggpubr)
+library(grid)
+library(ComplexHeatmap)
+library(RColorBrewer)
+library(circlize)
+library(ggtext)
+library(EnhancedVolcano)
+library(pheatmap)
+library(viridis)
+library(countToFPKM)
+library(biomaRt)
+library(ggfortify)
+library(ggvenn)
+
+source("C:\\Kfir_Thesis_Asaf_Madi\\Project_2 - BulkRNAseq\\Bulk_RNA_Functions.R")
+
+```
+
+
+```{r}
+
+
+#Loading gene lists:
+#Loading data and analyzing
+ensembl <- useMart('ensembl', dataset = 'mmusculus_gene_ensembl')
+#Loading ligand-receptor table list
+Ligand_Recep_Mouse <- read.table(file = '..\\Gene_lists\\LigandReceptorTableMouse.tsv', sep = '\t', header = TRUE)
+
+#Subsetting to only ligands
+ligands_subset <- unique(Ligand_Recep_Mouse[, which(colnames(Ligand_Recep_Mouse) == "from")])
+#write.table(ligands_subset, "..\\ligands_subset.txt", row.names = FALSE, col.names = FALSE)
+#Subsetting to only receptors
+receptors_subset <- unique(Ligand_Recep_Mouse[,which(colnames(Ligand_Recep_Mouse) == "to")])
+#write.table(receptors_subset, "..\\receptors_subset.txt", row.names = FALSE, col.names = FALSE)
+
+#Loading TFs gene list
+Mouse_TFs <- scan("..\\Gene_lists\\Mouse_TFs.txt", what="", sep="\n")
+
+#ENSMBL ids to Gene Names
+Mouse_TFs_gene_names <- getBM(attributes = c('mgi_symbol','ensembl_gene_id'),filters = 'ensembl_gene_id',values = Mouse_TFs, mart = ensembl)
+Mouse_TFs_gene_names <- Mouse_TFs_gene_names[!(is.na(Mouse_TFs_gene_names$mgi_symbol) | Mouse_TFs_gene_names$mgi_symbol==""), ]
+Mouse_TFs_gene_names <- Mouse_TFs_gene_names[,1]
+
+
+
+
+
+```
+
+```{r}
+#ALL data
+Raw_Counts_T_cells <- read.csv(file = '.\\Raw_Data\\T_Cells\\Raw_Counts_Nadine_CD8+_29_07_21_Experiment.csv', header = TRUE)
+#First column to row.names
+Raw_Counts_T_cells <- Raw_Counts_T_cells %>% remove_rownames %>% column_to_rownames(var="X")
+#Relocating tumors before dlns
+Raw_Counts_T_cells <- relocate(Raw_Counts_T_cells, c(CD8_Tumor_1,CD8_Tumor_2,CD8_Tumor_3), .before = CD8_DLN_1)
+#Tomer_Raw_Data <- read.table(file = '.\\Raw_Data\\featureCounts.align.txt', sep = '\t', header = TRUE)
+
+#Analysis
+List_T_Cells_In_Vivo <- Mouse_BulkRNAseqAnalysis(Counts = Raw_Counts_T_cells,
+Samples_Groups_By_Order = c(rep("CD8_Tumor",3) ,rep("CD8_DLN", 3)),  Samples_Colors_By_Order = c("CD8_Tumor"="darkmagenta","CD8_DLN"="darkblue"), plots_path = "C:\\Kfir_Thesis_Asaf_Madi\\Project_2 - BulkRNAseq\\Tomer_Data\\T_Cells\\Results",Experiment_Name = "CD8_Tumor_DLN_In_Vivo", PCA_width = 10, PCA_height = 7,Comparisons = TRUE,ref = FALSE)
+
+
+
+#################################################################################
+
+
+
+Raw_Counts_moDC <- read.csv(file = '.\\Raw_Data\\moDC\\Raw_Counts_Nadine_moDC_16_8_21_Experiment.csv', header = TRUE)
+#First column to row.names
+Raw_Counts_moDC <- Raw_Counts_moDC %>% remove_rownames %>% column_to_rownames(var="X")
+colnames(Raw_Counts_moDC) <- paste('DC', colnames(Raw_Counts_moDC), sep = '_')
+#Relocating tumors before LNs
+Raw_Counts_moDC <- relocate(Raw_Counts_moDC, c(DC_Tumor1,DC_Tumor2,DC_Tumor3), .before = DC_LN1)
+colnames(Raw_Counts_moDC) <- c("MoDC_Tumor1","MoDC_Tumor2","MoDC_Tumor3","MoDC_LN1","MoDC_LN2","MoDC_LN3")
+
+#Analysis
+List_moDC_In_Vivo <- Mouse_BulkRNAseqAnalysis(Counts = Raw_Counts_moDC,
+Samples_Groups_By_Order = c(rep("MoDC_Tumor",3) ,rep("MoDC_LN", 3)),  Samples_Colors_By_Order = c("MoDC_Tumor"="brown","MoDC_LN"="navy"), plots_path ="C:\\Kfir_Thesis_Asaf_Madi\\Project_2 - BulkRNAseq\\Tomer_Data\\moDC\\Results",Experiment_Name = "moDC_LN_Tumor_In_Vivo", PCA_width = 10, PCA_height = 7,Comparisons = TRUE, ref = FALSE)
+
+
+```
+
+
+```{r}
+#New legend label grob
+legend_title <- textGrob("Row Z-Score",x=0,y=1.01,hjust=0,vjust=0,gp=gpar(fontsize=15,fontface="bold"))
+
+```
+
+```{r}
+
+#############Overlap with MoDC_6HvsNaive In vitro and CD8+TumorvsDLN In Vivo
+
+DEG_MoDC_6HvsNaive_NOWash <- read.csv("C:\\Kfir_Thesis_Asaf_Madi\\Project_2 - BulkRNAseq\\MoDC\\Without_Wash\\Without_Naive_MoDC_M4_Sample\\DEG_InVitro_MoDC_6HvsMoDC_Naive_Without_Naive_M4_--Treatment_6H_Versus_Naive--_padj_lt_0.05.csv")
+DEG_MoDC_6HvsNaive_NOWash <- DEG_MoDC_6HvsNaive_NOWash %>% column_to_rownames("X")
+
+DEG_MoDC_6HvsNaive_NOWash_TFs <- subset(DEG_MoDC_6HvsNaive_NOWash, row.names(DEG_MoDC_6HvsNaive_NOWash) %in% Mouse_TFs_gene_names)
+
+DEG_MoDC_6HvsNaive_NOWash_TFs_UP <- subset(DEG_MoDC_6HvsNaive_NOWash_TFs, lgFC_Treatment_6H_vs_Naive > 0)
+DEG_MoDC_6HvsNaive_NOWash_TFs_Down <-  subset(DEG_MoDC_6HvsNaive_NOWash_TFs, lgFC_Treatment_6H_vs_Naive < 0)
+
+DEG_CD8_TumorvsDLN_InVivo <- read.csv("C:\\Kfir_Thesis_Asaf_Madi\\Project_2 - BulkRNAseq\\Tomer_Data\\T_Cells\\Results\\DEG_CD8_Tumor_DLN_In_Vivo_--CD8_Tumor_Versus_CD8_DLN--_padj_lt_0.05.csv")
+
+DEG_CD8_TumorvsDLN_InVivo <- DEG_CD8_TumorvsDLN_InVivo %>% column_to_rownames("X")
+
+DEG_CD8_TumorvsDLN_InVivo_TFs <- subset(DEG_CD8_TumorvsDLN_InVivo, row.names(DEG_CD8_TumorvsDLN_InVivo) %in% Mouse_TFs_gene_names)
+
+DEG_CD8_TumorvsDLN_InVivo_TFs_UP <- subset(DEG_CD8_TumorvsDLN_InVivo_TFs, lgFC_CD8_Tumor_vs_CD8_DLN > 0)
+DEG_CD8_TumorvsDLN_InVivo_TFs_Down <- subset(DEG_CD8_TumorvsDLN_InVivo_TFs, lgFC_CD8_Tumor_vs_CD8_DLN < 0)
+
+
+DEG_TFs_UP_CD8Tumor_MoDC6H_Common <- intersect(row.names(DEG_MoDC_6HvsNaive_NOWash_TFs_UP),row.names(DEG_CD8_TumorvsDLN_InVivo_TFs_UP))
+
+write.csv(DEG_TFs_UP_CD8Tumor_MoDC6H_Common,".\\DEG_TFs_UP_CD8Tumor_MoDC6H_Common.csv")
+
+DEG_TFs_DOWN_CD8Tumor_MoDC6H_Common <- intersect(row.names(DEG_MoDC_6HvsNaive_NOWash_TFs_Down),row.names(DEG_CD8_TumorvsDLN_InVivo_TFs_Down))
+
+write.csv(DEG_TFs_DOWN_CD8Tumor_MoDC6H_Common, ".\\DEG_TFs_DOWN_CD8Tumor_MoDC6H_Common.csv")
+
+DEG_TFs_UPDown_CD8Tumor_MoDC6H_Common <- c(DEG_TFs_UP_CD8Tumor_MoDC6H_Common,DEG_TFs_DOWN_CD8Tumor_MoDC6H_Common)
+
+write.table(DEG_TFs_UPDown_CD8Tumor_MoDC6H_Common, ".\\TFs_UPDown_CD8Tumor_MoDC6H_Common.txt",row.names = F,col.names = F)
+
+
+
+```
+
+```{r}
+########################## Creating Heatmaps and Further analysis ############################################## CD8 cells in vivo T/DLN
+
+List_T_Cells_In_Vivo <- readRDS("C:\\Kfir_Thesis_Asaf_Madi\\Project_2 - BulkRNAseq\\Tomer_Data\\T_Cells\\Results\\CD8_Tumor_DLN_In_Vivo.rds")
+
+
+#Wald Heatmap
+deg_res_sigs_Wald <- List_T_Cells_In_Vivo$Counts_res_list$`CD8_Tumor _vs_ CD8_DLN`$deg_res_sig
+Heatmap_df_Wald <- deg_res_sigs_Wald[order(deg_res_sigs_Wald$lgFC_CD8_Tumor_vs_CD8_DLN, decreasing = TRUE),]
+#Obtaining normalized counts
+nm_counts_deseq_Wald <- rlog(List_T_Cells_In_Vivo$dds_Wald, blind=FALSE)
+#Filtering to only genes from the DEG sigs
+Heatmap_df_Wald <- assay(nm_counts_deseq_Wald)[rownames(Heatmap_df_Wald), ]
+
+#HEATMAPS
+#General HEATMAP of EVERYTHING 
+General_Heatmap_T_Cells <- pheatmap::pheatmap(Heatmap_df_Wald,
+                                         scale="row", 
+                                         show_rownames = F, 
+                                         show_colnames = T,
+                                         cluster_rows = T,
+                                         cluster_cols = T,
+                                         cutree_cols  = 2, 
+                                         cutree_rows = 2, 
+                                         clustering_distance_rows = "euclidean",
+                                         clustering_distance_cols = "euclidean", 
+                                         treeheight_row = 0,
+                                         color = 
+                                           rev(colorRampPalette(brewer.pal(10, "RdBu"))(256)),
+                                         cellwidth = 30,
+                                         display_numbers = FALSE, 
+                                         border_color = NA,
+                                         annotation_col = 
+                                           data.frame(Group = 
+                                                        factor(c(rep(c("CD8_DLN","CD8_Tumor"), 
+                                                                     each=3))), 
+                                                      row.names = c("CD8_DLN_1","CD8_DLN_2",
+                                                                    "CD8_DLN_3","CD8_Tumor_1",
+                                                                    "CD8_Tumor_2",
+                                                                    "CD8_Tumor_3")),
+                                         annotation_colors = list(Group = c("CD8_DLN" = "darkblue",
+                                                                            "CD8_Tumor" = "darkmagenta"
+                                                                            )),
+                                         annotation_legend = T)
+#PDF: 10 10 landscape
+
+
+General_col_order <- General_Heatmap_T_Cells$tree_col$order
+
+General_Heatmap_T_Cells <- pheatmap.edit(General_Heatmap_T_Cells, annotations_title_x = -300)
+
+#PLOTTING
+General_Heatmap_T_Cells
+
+
+
+
+
+
+
+
+
+
+
+
+
+#TFs (TRANSCRIPTION FACTORS) HEATMAP
+
+  #Data
+T_Cells_InVivo_TFs <- subset(Heatmap_df_Wald, rownames(Heatmap_df_Wald) %in% Mouse_TFs_gene_names)
+
+  #Subset of TF genes to show
+Tfs_To_Show <- read.table(file ="C:\\Kfir_Thesis_Asaf_Madi\\Project_2 - BulkRNAseq\\Gene_lists\\TFs_UPDown_CD8Tumor_MoDC6H_Common.txt", sep = '\n', header = FALSE)$V1
+  #Setting rownames that are not wanted as "", while keeping the Tfs_To_Show rownames
+labs.row <- rownames(T_Cells_InVivo_TFs)
+labs.row[!(labs.row %in% Tfs_To_Show)] <- ""
+
+  #Generating Heatmap
+T_Cells_InVivo_TFs_Heatmap <- pheatmap::pheatmap(
+  T_Cells_InVivo_TFs,
+  labels_row = labs.row,
+  scale = "row",
+  show_rownames = T,
+  show_colnames = T,
+  cluster_rows = T,
+  fontsize_col = 15,
+  cluster_cols = General_Heatmap_T_Cells$tree_col,
+  cutree_rows = 2,
+  cutree_cols  = 2,
+  clustering_distance_rows = "euclidean",
+  clustering_distance_cols = "euclidean",
+  treeheight_row = 0,
+  color =
+    rev(colorRampPalette(brewer.pal(10, "RdBu"))(256)),
+  cellwidth = 30,
+  fontsize_row = 1,
+  display_numbers = FALSE,
+  border_color = NA,
+  annotation_col =
+    data.frame(
+      Group =
+        factor(c(rep(
+          c("CD8_Tumor"),
+          each =
+            3
+        ) , rep("CD8_DLN", 3))),
+      row.names = c(
+        "CD8_Tumor_1",
+        "CD8_Tumor_2",
+        "CD8_Tumor_3",
+        "CD8_DLN_1",
+        "CD8_DLN_2",
+        "CD8_DLN_3"
+      )
+    ),
+  annotation_colors = list(
+    Group = c(
+      "CD8_Tumor" = "darkmagenta",
+      "CD8_DLN" = "darkblue"
+    )
+  ),
+  annotation_legend = T
+)
+
+#PDF: 10 10 landscape
+
+
+T_Cells_InVivo_TFs_Heatmap <- pheatmap.edit(T_Cells_InVivo_TFs_Heatmap, annotations_title_x = -400)
+
+
+#Calculating scaled values of the data:
+T_Cells_InVivo_TFs_scaled <- round(pheatmap.scale(T_Cells_InVivo_TFs), 2)
+
+row.order = T_Cells_InVivo_TFs_Heatmap$tree_row$order
+
+T_Cells_InVivo_TFs_scaled <- T_Cells_InVivo_TFs_scaled[row.order,General_col_order]
+
+write.csv(T_Cells_InVivo_TFs_scaled, file = "C:\\Kfir_Thesis_Asaf_Madi\\Project_2 - BulkRNAseq\\Tomer_Data\\T_Cells\\Results\\Heatmaps\\Heatmap_DF_T_Cells_In_Vivo_TFs_Wald.csv")
+
+T_Cells_InVivo_TFs_Heatmap
+  #Side title
+grid.text("Transcription Factors", x=0.13, y=0.6, rot=90,gp=gpar(fontsize=20, col="black"))
+
+
+
+
+
+#LIGANDS HEATMAP
+  #Data
+T_Cells_InVivo_Ligands <- subset(Heatmap_df_Wald, rownames(Heatmap_df_Wald) %in% ligands_subset)
+  #Saving rownames
+#write.table(rownames(T_Cells_InVivo_Ligands), ".\\MoDC\\Without_Wash\\Without_Naive_MoDC_M4_Sample\\ligands_heatmap_subset.txt", row.names = FALSE, col.names = FALSE)
+
+  #Subset of ligand genes to show
+Ligands_To_Show <- read.table(file = 'C:\\Kfir_Thesis_Asaf_Madi\\Project_2 - BulkRNAseq\\Gene_lists\\ligands_subset_To_Show.txt', sep = '\n', header = FALSE)$V1
+  #Setting rownames that are not wanted as "", while keeping the Ligands_To_Show rownames
+labs.row <- rownames(T_Cells_InVivo_Ligands)
+labs.row[!(labs.row %in% Ligands_To_Show)] <- ""
+
+
+  #Generating Heatmap
+T_Cells_InVivo_Ligands_Heatmap <- pheatmap::pheatmap(
+  T_Cells_InVivo_Ligands,
+  labels_row = labs.row,
+  scale = "row",
+  show_rownames = T,
+  show_colnames = T,
+  cluster_rows = T,
+  fontsize_col = 15,
+  cluster_cols = General_Heatmap_T_Cells$tree_col,
+  cutree_rows = 2,
+  cutree_cols  = 2,
+  clustering_distance_rows = "euclidean",
+  clustering_distance_cols = "euclidean",
+  treeheight_row = 0,
+  color =
+    rev(colorRampPalette(brewer.pal(10, "RdBu"))(256)),
+  cellwidth = 30,
+  fontsize_row = 2,
+  display_numbers = FALSE,
+  border_color = NA,
+  annotation_col =
+    data.frame(
+      Group =
+        factor(c(rep(
+          c("CD8_Tumor"),
+          each =
+            3
+        ) , rep("CD8_DLN", 3))),
+      row.names = c(
+        "CD8_Tumor_1",
+        "CD8_Tumor_2",
+        "CD8_Tumor_3",
+        "CD8_DLN_1",
+        "CD8_DLN_2",
+        "CD8_DLN_3"
+      )
+    ),
+  annotation_colors = list(
+    Group = c(
+      "CD8_Tumor" = "darkmagenta",
+      "CD8_DLN" = "darkblue"
+    )
+  ),
+  annotation_legend = T
+)
+
+#PDF: 10 10 landscape
+
+
+T_Cells_InVivo_Ligands_Heatmap <- pheatmap.edit(T_Cells_InVivo_Ligands_Heatmap, annotations_title_x = -400)
+
+
+#Calculating scaled values of the data:
+T_Cells_InVivo_Ligands_scaled <- round(pheatmap.scale(T_Cells_InVivo_Ligands), 2)
+
+row.order = T_Cells_InVivo_Ligands_Heatmap$tree_row$order
+
+T_Cells_InVivo_Ligands_scaled <- T_Cells_InVivo_Ligands_scaled[row.order,General_col_order]
+
+write.csv(T_Cells_InVivo_Ligands_scaled, file = "C:\\Kfir_Thesis_Asaf_Madi\\Project_2 - BulkRNAseq\\Tomer_Data\\T_Cells\\Results\\Heatmaps\\Heatmap_DF_T_Cells_In_Vivo_Ligands_Wald.csv")
+
+T_Cells_InVivo_Ligands_Heatmap
+  #Side title
+grid.text("Ligands", x=0.13, y=0.6, rot=90,gp=gpar(fontsize=20, col="black"))
+
+
+
+
+#RECEPTORS HEATMAP
+  #Data
+T_Cells_InVivo_Receptors <- subset(Heatmap_df_Wald, rownames(Heatmap_df_Wald) %in% receptors_subset)
+  #Saving rownames
+#write.table(rownames(T_Cells_InVivo_Receptors), ".\\MoDC\\Without_Wash\\Without_Naive_MoDC_M4_Sample\\receptors_heatmap_subset.txt", row.names = FALSE, col.names = FALSE)
+
+  #Subset of ligand genes to show
+Receptors_To_Show <- read.table(file = 'C:\\Kfir_Thesis_Asaf_Madi\\Project_2 - BulkRNAseq\\Gene_lists\\Receptors_subset_To_Show_In_Vitro_MoDC_NOWash.txt', sep = '\n', header = FALSE)$V1
+  #Setting rownames that are not wanted as "", while keeping the Receptors_To_Show rownames
+labs.row <- rownames(T_Cells_InVivo_Receptors)
+labs.row[!(labs.row %in% Receptors_To_Show)] <- ""
+
+
+  #Generating Heatmap
+T_Cells_InVivo_Receptors_Heatmap <- pheatmap::pheatmap(
+  T_Cells_InVivo_Receptors,
+  labels_row = labs.row,
+  scale = "row",
+  show_rownames = T,
+  show_colnames = T,
+  cluster_rows = T,
+  fontsize_col = 15,
+  cluster_cols = General_Heatmap_T_Cells$tree_col,
+  cutree_rows = 2,
+  cutree_cols  = 2,
+  clustering_distance_rows = "euclidean",
+  clustering_distance_cols = "euclidean",
+  treeheight_row = 0,
+  color =
+    rev(colorRampPalette(brewer.pal(10, "RdBu"))(256)),
+  cellwidth = 30,
+  fontsize_row = 5,
+  display_numbers = FALSE,
+  border_color = NA,
+  annotation_col =
+    data.frame(
+      Group =
+        factor(c(rep(
+          c("CD8_Tumor"),
+          each =
+            3
+        ) , rep("CD8_DLN", 3))),
+      row.names = c(
+        "CD8_Tumor_1",
+        "CD8_Tumor_2",
+        "CD8_Tumor_3",
+        "CD8_DLN_1",
+        "CD8_DLN_2",
+        "CD8_DLN_3"
+      )
+    ),
+  annotation_colors = list(
+    Group = c(
+      "CD8_Tumor" = "darkmagenta",
+      "CD8_DLN" = "darkblue"
+    )
+  ),
+  annotation_legend = T
+)
+
+#PDF: 10 10 landscape
+
+
+T_Cells_InVivo_Receptors_Heatmap <- pheatmap.edit(T_Cells_InVivo_Receptors_Heatmap, annotations_title_x = -400)
+
+
+#Calculating scaled values of the data:
+T_Cells_InVivo_Receptors_scaled <- round(pheatmap.scale(T_Cells_InVivo_Receptors), 2)
+
+row.order = T_Cells_InVivo_Receptors_Heatmap$tree_row$order
+
+T_Cells_InVivo_Receptors_scaled <- T_Cells_InVivo_Receptors_scaled[row.order,General_col_order]
+
+write.csv(T_Cells_InVivo_Receptors_scaled, file = "C:\\Kfir_Thesis_Asaf_Madi\\Project_2 - BulkRNAseq\\Tomer_Data\\T_Cells\\Results\\Heatmaps\\Heatmap_DF_T_Cells_In_Vivo_Receptors_Wald.csv")
+
+T_Cells_InVivo_Receptors_Heatmap
+  #Side title
+grid.text("Receptors", x=0.13, y=0.6, rot=90,gp=gpar(fontsize=20, col="black"))
+
+
+```
+
+
+
+
+
+
+
+```{r}
+########################## Creating Heatmaps and Further analysis ############################################## MoDC in vivo (T/DLN)
+
+List_moDC_In_Vivo <- readRDS(".\\moDC\\Results\\moDC_LN_Tumor_In_Vivo.rds")
+
+#Wald Heatmap
+deg_res_sigs_Wald <- List_moDC_In_Vivo$Counts_res_list$`MoDC_Tumor _vs_ MoDC_LN`$deg_res_sig
+Heatmap_df_Wald <- deg_res_sigs_Wald[order(deg_res_sigs_Wald$lgFC_MoDC_Tumor_vs_MoDC_LN, decreasing = TRUE),]
+#Obtaining normalized counts
+nm_counts_deseq_Wald <- rlog(List_moDC_In_Vivo$dds_Wald, blind=FALSE)
+#Filtering to only genes from the DEG sigs
+Heatmap_df_Wald <- assay(nm_counts_deseq_Wald)[rownames(Heatmap_df_Wald), ]
+
+
+#HEATMAPS
+#General HEATMAP of EVERYTHING 
+General_Heatmap_moDC<- pheatmap::pheatmap(Heatmap_df_Wald,
+                                         scale="row", 
+                                         show_rownames = F, 
+                                         show_colnames = T,
+                                         cluster_rows = T,
+                                         cluster_cols = T,
+                                         cutree_cols  = 2, 
+                                         cutree_rows = 2, 
+                                         fontsize_col = 15,
+                                         clustering_distance_rows = "euclidean",
+                                         clustering_distance_cols = "euclidean", 
+                                         treeheight_row = 0,
+                                         color = 
+                                           rev(colorRampPalette(brewer.pal(10, "RdBu"))(256)),
+                                         cellwidth = 30,
+                                         display_numbers = FALSE, 
+                                         border_color = NA,
+                                         annotation_col = 
+                                           data.frame(Group = 
+                                                        factor(c(rep(c("MoDC_LN","MoDC_Tumor"), 
+                                                                     each=3))), 
+                                                      row.names = c("MoDC_LN1","MoDC_LN2",
+                                                                    "MoDC_LN3","MoDC_Tumor1",
+                                                                    "MoDC_Tumor2",
+                                                                    "MoDC_Tumor3")),
+                                         annotation_colors = list(Group = c("MoDC_LN" = "navy",
+                                                                          "MoDC_Tumor" = "#7c3f00")),
+                                         annotation_legend = T)
+#PDF: 10 10 landscape
+
+
+General_col_order <- General_Heatmap_moDC$tree_col$order
+
+General_Heatmap_moDC <- pheatmap.edit(General_Heatmap_moDC, annotations_title_x = -300)
+
+
+
+
+
+
+#TFs (TRANSCRIPTION FACTORS) HEATMAP
+
+  #Data
+moDC_In_Vivo_TFs <- subset(Heatmap_df_Wald, rownames(Heatmap_df_Wald) %in% Mouse_TFs_gene_names)
+
+  #Subset of TF genes to show
+Tfs_To_Show <- read.table(file ="C:\\Kfir_Thesis_Asaf_Madi\\Project_2 - BulkRNAseq\\Gene_lists\\TFs_UPDown_CD8Tumor_MoDC6H_Common.txt", sep = '\n', header = FALSE)$V1
+  #Setting rownames that are not wanted as "", while keeping the Tfs_To_Show rownames
+labs.row <- rownames(moDC_In_Vivo_TFs)
+labs.row[!(labs.row %in% Tfs_To_Show)] <- ""
+
+  #Generating Heatmap
+moDC_In_Vivo_TFs_Heatmap <- pheatmap::pheatmap(
+  moDC_In_Vivo_TFs,
+  labels_row = labs.row,
+  scale = "row",
+  show_rownames = T,
+  show_colnames = T,
+  cluster_rows = T,
+  fontsize_col = 15,
+  cluster_cols = General_Heatmap_moDC$tree_col,
+  cutree_rows = 2,
+  cutree_cols  = 2,
+  clustering_distance_rows = "euclidean",
+  clustering_distance_cols = "euclidean",
+  treeheight_row = 0,
+  color =
+    rev(colorRampPalette(brewer.pal(10, "RdBu"))(256)),
+  cellwidth = 30,
+  fontsize_row = 2,
+  display_numbers = FALSE,
+  border_color = NA,
+  annotation_col =
+    data.frame(
+      Group =
+        factor(c(rep(
+          c("MoDC_LN", "MoDC_Tumor"),
+          each =
+            3
+        ))),
+      row.names = c(
+        "MoDC_LN1",
+        "MoDC_LN2",
+        "MoDC_LN3",
+        "MoDC_Tumor1",
+        "MoDC_Tumor2",
+        "MoDC_Tumor3"
+      )
+    ),
+  annotation_colors = list(Group = c(
+    "MoDC_LN" = "navy",
+    "MoDC_Tumor" = "#7c3f00"
+  )),
+  annotation_legend = T
+)
+
+#PDF: 10 10 landscape
+
+
+moDC_In_Vivo_TFs_Heatmap <- pheatmap.edit(moDC_In_Vivo_TFs_Heatmap, annotations_title_x = -400)
+
+
+#Calculating scaled values of the data:
+moDC_In_Vivo_TFs_scaled <- round(pheatmap.scale(moDC_In_Vivo_TFs), 2)
+
+row.order = moDC_In_Vivo_TFs_Heatmap$tree_row$order
+
+moDC_In_Vivo_TFs_scaled <- moDC_In_Vivo_TFs_scaled[row.order,General_col_order]
+
+write.csv(moDC_In_Vivo_TFs_scaled, file = "C:\\Kfir_Thesis_Asaf_Madi\\Project_2 - BulkRNAseq\\Tomer_Data\\moDC\\Results\\Heatmaps\\Heatmap_DF_moDC_In_Vivo_TFs_Wald.csv")
+
+moDC_In_Vivo_TFs_Heatmap
+  #Side title
+grid.text("Transcription Factors", x=0.13, y=0.6, rot=90,gp=gpar(fontsize=20, col="black"))
+
+
+
+
+#LIGANDS HEATMAP
+  #Data
+moDC_In_Vivo_MouseLigands <- subset(Heatmap_df_Wald, rownames(Heatmap_df_Wald) %in% ligands_subset)
+  #Saving rownames
+#write.table(rownames(moDC_In_Vivo_MouseLigands), ".\\ligands_heatmap_subset.txt", row.names = FALSE, col.names = FALSE)
+
+  #Subset of ligand genes to show
+Ligands_To_Show <- read.table(file = 'C:\\Kfir_Thesis_Asaf_Madi\\Project_2 - BulkRNAseq\\Gene_lists\\ligands_subset_To_Show.txt', sep = '\n', header = FALSE)$V1
+  #Setting rownames that are not wanted as "", while keeping the Ligands_To_Show rownames
+labs.row <- rownames(moDC_In_Vivo_MouseLigands)
+labs.row[!(labs.row %in% Ligands_To_Show)] <- ""
+
+
+  #Generating Heatmap
+moDC_In_Vivo_MouseLigands_Heatmap <- pheatmap::pheatmap(
+  moDC_In_Vivo_MouseLigands,
+  labels_row = labs.row,
+  scale = "row",
+  show_rownames = T,
+  show_colnames = T,
+  cluster_rows = T,
+  fontsize_col = 15,
+  cluster_cols = General_Heatmap_moDC$tree_col,
+  cutree_rows = 2,
+  cutree_cols  = 2,
+  clustering_distance_rows = "euclidean",
+  clustering_distance_cols = "euclidean",
+  treeheight_row = 0,
+  color =
+    rev(colorRampPalette(brewer.pal(10, "RdBu"))(256)),
+  cellwidth = 30,
+  fontsize_row = 4,
+  display_numbers = FALSE,
+  border_color = NA,
+  annotation_col =
+    data.frame(
+      Group =
+        factor(c(rep(
+          c("MoDC_LN", "MoDC_Tumor"),
+          each =
+            3
+        ))),
+      row.names = c(
+        "MoDC_LN1",
+        "MoDC_LN2",
+        "MoDC_LN3",
+        "MoDC_Tumor1",
+        "MoDC_Tumor2",
+        "MoDC_Tumor3"
+      )
+    ),
+  annotation_colors = list(Group = c(
+    "MoDC_LN" = "navy",
+    "MoDC_Tumor" = "#7c3f00"
+  )),
+  annotation_legend = T
+)
+
+#PDF: 10 10 landscape
+
+
+moDC_In_Vivo_MouseLigands_Heatmap <- pheatmap.edit(moDC_In_Vivo_MouseLigands_Heatmap, annotations_title_x = -400)
+
+
+#Calculating scaled values of the data:
+moDC_In_Vivo_MouseLigands_scaled <- round(pheatmap.scale(moDC_In_Vivo_MouseLigands), 2)
+
+row.order = moDC_In_Vivo_MouseLigands_Heatmap$tree_row$order
+
+moDC_In_Vivo_MouseLigands_scaled <- moDC_In_Vivo_MouseLigands_scaled[row.order,General_col_order]
+
+write.csv(moDC_In_Vivo_MouseLigands_scaled, file = "C:\\Kfir_Thesis_Asaf_Madi\\Project_2 - BulkRNAseq\\Tomer_Data\\moDC\\Results\\Heatmaps\\Heatmap_DF_moDC_In_Vivo_Ligands_Wald.csv")
+
+moDC_In_Vivo_MouseLigands_Heatmap
+  #Side title
+grid.text("Ligands", x=0.13, y=0.6, rot=90,gp=gpar(fontsize=20, col="black"))
+
+
+
+
+
+#RECEPTORS HEATMAP
+  #Data
+moDC_In_Vivo_MouseReceptors <- subset(Heatmap_df_Wald, rownames(Heatmap_df_Wald) %in% receptors_subset)
+  #Saving rownames
+#write.table(rownames(moDC_In_Vivo_MouseReceptors), ".\\MoDC\\Without_Wash\\Without_Naive_MoDC_M4_Sample\\receptors_heatmap_subset.txt", row.names = FALSE, col.names = FALSE)
+
+  #Subset of ligand genes to show
+Receptors_To_Show <- read.table(file = 'C:\\Kfir_Thesis_Asaf_Madi\\Project_2 - BulkRNAseq\\Gene_lists\\Receptors_subset_To_Show_In_Vitro_MoDC_NOWash.txt', sep = '\n', header = FALSE)$V1
+  #Setting rownames that are not wanted as "", while keeping the Receptors_To_Show rownames
+labs.row <- rownames(moDC_In_Vivo_MouseReceptors)
+labs.row[!(labs.row %in% Receptors_To_Show)] <- ""
+
+
+
+#Creating general heatmap
+moDC_In_Vivo_MouseReceptors_Heatmap <-
+  pheatmap::pheatmap(
+    moDC_In_Vivo_MouseReceptors,
+    labels_row = labs.row,
+    scale = "row",
+    show_rownames = T,
+    show_colnames = T,
+    fontsize_col = 15,
+    cluster_rows = T,
+    cluster_cols =
+      General_Heatmap_moDC$tree_col,
+    cutree_rows = 2,
+    cutree_cols  = 2,
+    clustering_distance_rows = "euclidean",
+    clustering_distance_cols = "euclidean",
+    color =
+      rev(colorRampPalette(brewer.pal(10, "RdBu"))(256)),
+    treeheight_row = 0,
+    display_numbers = F,
+    border_color = NA,
+    cellwidth = 30,
+    annotation_col =
+      data.frame(
+        Group =
+          factor(c(rep(
+            c("MoDC_LN", "MoDC_Tumor"),
+            each =
+              3
+          ))),
+        row.names = c(
+          "MoDC_LN1",
+          "MoDC_LN2",
+          "MoDC_LN3",
+          "MoDC_Tumor1",
+          "MoDC_Tumor2",
+          "MoDC_Tumor3"
+        )
+      ),
+    annotation_colors = list(Group = c(
+      "MoDC_LN" = "navy",
+      "MoDC_Tumor" = "#7c3f00"
+    )),
+    annotation_legend = T
+  )
+
+moDC_In_Vivo_MouseReceptors_Heatmap <- pheatmap.edit(moDC_In_Vivo_MouseReceptors_Heatmap, annotations_title_x = -400)
+
+
+#Calculating scaled values of the data:
+moDC_In_Vivo_MouseReceptors_Heatmap_scaled <- round(pheatmap.scale(moDC_In_Vivo_MouseReceptors), 2)
+
+row.order = moDC_In_Vivo_MouseReceptors_Heatmap$tree_row$order
+
+moDC_In_Vivo_MouseReceptors_Heatmap_scaled <- moDC_In_Vivo_MouseReceptors_Heatmap_scaled[row.order,General_col_order]
+
+write.csv(moDC_In_Vivo_MouseReceptors_Heatmap_scaled, file = "C:\\Kfir_Thesis_Asaf_Madi\\Project_2 - BulkRNAseq\\Tomer_Data\\moDC\\Results\\Heatmaps\\Heatmap_DF_moDC_In_Vivo_Receptors_Wald.csv")
+
+moDC_In_Vivo_MouseReceptors_Heatmap
+grid.text("Receptors", x=0.13, y=0.6, rot=90,gp=gpar(fontsize=20, col="black"))
+
+```
+
+
+
+```{r}
+
+
+
+```
