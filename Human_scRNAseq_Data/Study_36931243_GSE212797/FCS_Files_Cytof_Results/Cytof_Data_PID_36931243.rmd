@@ -1,0 +1,247 @@
+---
+title: "Cytof_Data_PID_36931243"
+author: "Kfir Inbal"
+date: "2024-04-17"
+output: html_document
+---
+
+```{r}
+library(tidyselect)
+library(dbplyr)
+#library(HDCytoData)
+library(SingleCellExperiment)
+library(CATALYST)
+
+library(flowAI)
+library(flowCore)
+library(umap)
+library(ComplexHeatmap)
+library(diffcyt)
+```
+
+
+
+```{r}
+
+# List all files in the folder
+all_files <- list.files(".//", full.names = TRUE)
+
+# Filter files to select only those that end with ".fcs"
+fcs_files <- all_files[grepl(".fcs$", all_files)]
+# Removing "metastatic LN" samples
+filtered_fcs_files <- fcs_files[!grepl("Metastatic", fcs_files)]
+
+flow_data <- read.flowSet(filtered_fcs_files)
+
+#Removing prefix ".//"
+filtered_fcs_files <- sub("^\\.//", "", filtered_fcs_files)
+
+conditions <-c(rep(c("Tumor","LN"),9),"Tumor")
+
+# Create a sequence of numbers from 1 to the length of the repeated values
+numbers <- c(1,1,2,2,3,3,4,4,5,5,6,6,7,7,8,8,9,9,10)
+
+# Combine the values with the numbers
+conditions_enumerated <- paste(conditions, numbers, sep = "_")
+
+#Creating metadata:
+md <- data.frame(file_name = filtered_fcs_files, sample_id = conditions_enumerated ,condition = conditions, patient_id = seq(1,19))
+
+md <- md[match(names(flow_data@frames), md$file_name), ]
+
+
+#Creating panel:
+panel <- data.frame(fcs_colname = colnames(flow_data), antigen = flow_data@frames$`Norm_11538 Tumor_concat_Live Cells_CD45+.fcs`@parameters@data$desc,marker_class = c("state","state",rep("type",63),rep("state",5)))
+all(panel$fcs_colname %in% colnames(flow_data))
+
+
+# specify levels for conditions & sample IDs to assure desired ordering
+md$condition <- factor(md$condition, levels = c("Tumor", "LN"))
+md$sample_id <- factor(md$sample_id, 
+    levels = md$sample_id[order(md$condition)])
+
+
+# construct SingleCellExperiment
+sce <- CATALYST::prepData(flow_data, panel, md, features = panel$fcs_colname)
+
+# Filter sce to include only CD8+ T cells
+sce_cd8 <- subset(sce, subset = metadata == "CD8a")
+
+
+plotCounts(sce, group_by = "sample_id", color_by = "condition")
+#pbMDS(sce, color_by = "condition", label_by = "sample_id")
+
+# run t-SNE/UMAP on at most 500/1000 cells per sample
+set.seed(1234)
+#sce <- runDR(sce, "TSNE", cells = 500, features = "type")
+
+sce <- runDR(sce, "UMAP", cells = 1e3, features = "type")
+plotDR(sce, "UMAP")
+
+```
+
+
+```{r}
+
+check <- flowCore::read.FCS(".//Norm_11538 Tumor_concat_Live Cells_CD45+.fcs")
+
+
+# List all files in the folder
+all_files <- list.files(".//", full.names = TRUE)
+
+# Filter files to select only those that end with ".fcs"
+fcs_files <- all_files[grepl(".fcs$", all_files)]
+# Removing "metastatic LN" samples
+filtered_fcs_files <- fcs_files[!grepl("Metastatic", fcs_files)]
+
+flow_data <- read.flowSet(filtered_fcs_files)
+
+markers <- gsub(".*/|\\.fcs", "", filtered_fcs_files)
+
+#Removing prefix ".//"
+filtered_fcs_files <- sub("^\\.//", "", filtered_fcs_files)
+
+
+# Define the panel with CD8+ T cell specific markers
+panel <- data.frame(
+  fcs_colname = colnames(flow_data),
+  antigen = c("Granzyme B", "CD38", "CD127", "CD45RA", "TIM3", "TIGIT", "PD-L1", "CD27", "CD39", "Tbet", "CD103", "FoxP3", "CD69", "CCR7", "CD25", "TCF-1", "Pan-HLA-DR", "PD-1", "CD56", "CD16", "CD7", "CD95"),
+  marker_class = rep("CD8+ T", 22)
+)
+
+
+# Run FlowSOM clustering
+sce <- CATALYST::prepData(flow_data, panel, features = panel$fcs_colname)
+sce <- CATALYST::clusterSCE(sce, cluster_algo = "FlowSOM", grid_size = c(10, 10))
+sce <- CATALYST::metaClustering(sce, cluster_algo = "ConsensusClusterPlus", num_clusters = 20)
+
+```
+
+
+
+
+```{r}
+#NEWEST:
+# List all files in the folder
+all_files <- list.files(".//", full.names = TRUE)
+
+# Filter files to select only those that end with ".fcs"
+fcs_files <- all_files[grepl(".fcs$", all_files)]
+# Removing "metastatic LN" samples
+filtered_fcs_files <- fcs_files[!grepl("Metastatic", fcs_files)]
+
+flow_data <- read.flowSet(filtered_fcs_files)
+
+#Removing prefix ".//"
+filtered_fcs_files <- sub("^\\.//", "", filtered_fcs_files)
+
+conditions <-c(rep(c("Tumor","LN"),9),"Tumor")
+
+# Combine the values with the numbers
+conditions_enumerated <- paste(conditions, as.numeric(sub("^[^_]*_([0-9]+).*", "\\1", filtered_fcs_files)), sep = "_")
+
+#Creating metadata:
+md <- data.frame(file_name = filtered_fcs_files, sample_id = conditions_enumerated ,condition = conditions, patient_id =as.numeric(sub("^[^_]*_([0-9]+).*", "\\1", filtered_fcs_files)))
+
+md <- md[match(names(flow_data@frames), md$file_name), ]
+
+antigen_markers <- flow_data@frames$`Norm_11538 Tumor_concat_Live Cells_CD45+.fcs`@parameters@data$desc[c(-1,-2,-70,-69,-68,-67,-66)]
+
+
+fcs_colnames <- colnames(flow_data)[c(-1,-2,-70,-69,-68,-67,-66)]
+
+#Creating panel:
+panel <- data.frame(fcs_colname = fcs_colnames, antigen = antigen_markers, marker_class = c(rep("type",63)))
+
+panel <- panel[-which(panel$antigen %in% c("Barcode_1","Barcode_2","Barcode_3","Barcode_4","Barcode_5","Barcode_6","111Cd","127I","131Xe","138Ba","PanCK","Lu176Di","190BCKG","DNA","194Pt","198Pt","208Pb")), ]
+
+write.csv(panel, "panel.csv")
+
+all(panel$fcs_colname %in% colnames(flow_data))
+
+
+# specify levels for conditions & sample IDs to assure desired ordering
+md$condition <- factor(md$condition, levels = c("Tumor", "LN"))
+md$sample_id <- factor(md$sample_id, 
+    levels = md$sample_id[order(md$condition)])
+
+
+# construct SingleCellExperiment
+sce <- CATALYST::prepData(flow_data, panel, md, features = panel$fcs_colname)
+counts <- assays(sce)$counts
+exprss <- assays(sce)$exprs
+
+
+which (which (exprss == counts) == FALSE) #CHECK IF exprss and counts are the same matrix
+#THEY ARE
+
+
+raw_CD8A_counts <- as.data.frame(counts["CD8a",])
+raw_CD69_counts <- as.data.frame(counts["CD69",])
+
+#normalized_values <- as.data.frame(counts["CD8a",] / max(counts["CD8a",]))
+normalized_values <-as.data.frame(log(counts["CD8a",] + 1) / max(log(counts["CD8a",] + 1)))
+#CD8A_Counts = as.data.frame(log(counts["CD8a",]))
+colnames(normalized_values) <- "Expression"
+hist(normalized_values)
+ggplot(normalized_values, aes(x = Expression)) +
+  geom_histogram(binwidth = 0.1, fill = "skyblue", color = "black") +
+  labs(title = "Histogram of Gene Expression CD8a",
+       x = "Expression Values",
+       y = "Frequency")
+
+
+ggplot(raw_CD8A_counts, aes(x = counts["CD8a",])) + geom_histogram(binwidth = 1, fill = "skyblue", color = "black")  + labs(title = "Histogram of Gene Expression CD8a - NOT NORMALIZED", x = "Expression Values", y = "Frequency") +scale_x_continuous(breaks = seq(0, 200, by = 10), limits = c(0, 200))
+
+
+normalized_values <-as.data.frame(log(counts["CD69",] + 1) / max(log(counts["CD69",] + 1)))
+colnames(normalized_values) <- "Expression"
+ggplot(normalized_values, aes(x = Expression)) +
+  geom_histogram(binwidth = 0.1, fill = "skyblue", color = "black") +
+  labs(title = "Histogram of Gene Expression CD69",
+       x = "Expression Values",
+       y = "Frequency")
+
+ggplot(raw_CD69_counts, aes(x = counts["CD69", ])) + geom_histogram(binwidth = 1, fill = "skyblue", color = "black")  + labs(title = "Histogram of Gene Expression CD69 - NOT NORMALIZED", x = "Expression Values", y = "Frequency") +scale_x_continuous(breaks = seq(0, 200, by = 10), limits = c(0, 200))
+
+
+
+
+
+
+plotCounts(sce, group_by = "sample_id", color_by = "condition")
+plotExprs(sce, color_by = "condition", features = c("CD8a", "CD69"))
+
+plotNRS(sce, features = c("CD8a", "CD69"), color_by = "condition")
+plotClusterExprs(sce, features = c("CD8a", "CD69"))
+
+
+plotPbExprs(sce, features = c("CD8a", "CD69"),
+                fun = "median",
+                shape_by = "patient_id")
+
+plotExprs(sce, color_by = "condition", features = c("CD8a", "CD69"))
+
+#pbMDS(sce, color_by = "condition", label_by = "sample_id")
+
+# run t-SNE/UMAP on at most 500/1000 cells per sample
+set.seed(1234)
+sce <- runDR(sce, "TSNE", cells = 1000, features = "type")
+plotDR(sce, "TSNE")
+
+sce <- runDR(sce, "TSNE", cells = 1000, features = c("CD8a", "CD69"))
+plotDR(sce, "TSNE")
+
+
+
+set.seed(1234)
+sce <- cluster(sce, features = "type",
+    xdim = 10, ydim = 10, maxK = 20, seed = 1234)
+plotMahal(sce, which ="CD69", n = 1000)
+plotAbundances(sce,by="sample_id")
+plotClusterExprs(sce, k = "meta20", features = c("CD8a", "CD69"))
+
+sce <- runDR(sce, "UMAP", cells = 1e4, features = "type")
+plotDR(sce, "UMAP")
+
+```

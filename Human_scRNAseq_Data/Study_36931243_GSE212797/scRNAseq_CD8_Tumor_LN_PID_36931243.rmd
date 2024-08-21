@@ -1,0 +1,491 @@
+---
+title: "scRNAseq_CD8_Tumor_LN_PID_36931243"
+author: "Kfir Inbal"
+date: "2024-03-18"
+output: html_document
+---
+
+
+```{r}
+
+#When clustering - take CD8+ CD44+
+
+```
+
+```{r}
+#Another way to load the data
+library(zellkonverter)
+library("SingleCellExperiment")
+library(Seurat)
+library(anndata)
+scRNAExp<- readH5AD("C:\\Kfir_Thesis_Asaf_Madi\\Project_2 - BulkRNAseq\\Human_Data\\Study_36931243\\GSE212797_adata.h5ad", X_name = "counts")
+
+scRNAExp_Seurat <- CreateSeuratObject(counts = counts(scRNAExp), meta.data = as.data.frame(colData(scRNAExp)))
+scRNAExp_Seurat <- SetAssayData(object = scRNAExp_Seurat, slot = "data",new.data = log2(assays(scRNAExp)$counts + 1)) #new.data = logcounts(scRNAExp))
+
+# Set feature metadata, AKA rowData. Super intuitive, right?
+scRNAExp_Seurat[["RNA"]][[]] <- as.data.frame(rowData(scRNAExp))
+```
+
+```{r}
+#Load the data (all_data)
+library(Seurat)
+library(tibble)
+
+All_Data_Raw <- Read10X(data.dir = "C:\\Kfir_Thesis_Asaf_Madi\\Project_2 - BulkRNAseq\\Human_Data\\Study_36931243\\GSE212797_adata")
+
+metadata <- read.csv("C:\\Kfir_Thesis_Asaf_Madi\\Project_2 - BulkRNAseq\\Human_Data\\Study_36931243\\GSE212797_adata\\metadata.csv")
+
+metadata <- tibble::column_to_rownames(metadata, "X")
+
+Seurat_all <- CreateSeuratObject(counts = All_Data_Raw, meta.data = metadata)
+```
+
+
+```{r}
+
+#LOAD THIS:
+#Load the data (CD8_data)
+
+library(Seurat)
+library(tibble)
+
+CD8_Data_Raw <- Read10X(data.dir = "C:\\Kfir_Thesis_Asaf_Madi\\Project_2 - BulkRNAseq\\Human_Data\\Study_36931243\\GSE212797_adata_CD8")
+
+metadata <- read.csv("C:\\Kfir_Thesis_Asaf_Madi\\Project_2 - BulkRNAseq\\Human_Data\\Study_36931243\\GSE212797_adata_CD8\\metadata.csv")
+
+metadata <- tibble::column_to_rownames(metadata, "X")
+
+Seurat_CD8 <- CreateSeuratObject(counts = CD8_Data_Raw, meta.data = metadata)
+```
+
+
+
+```{r}
+library(findPC)
+library(ggplot2)
+library(dplyr)
+Seurat_Obj <- Seurat_CD8
+
+
+# Get the order of cells in the RNA assay
+#correct_order <- colnames(Seurat_Obj[["RNA"]]$counts)
+
+# Reorder the cells in active.ident
+#Seurat_Obj@active.ident <- Seurat_Obj@active.ident[match(correct_order, colnames(Seurat_Obj[["RNA"]]$counts))]
+
+#Seurat_Obj[["percent.mt"]] <- PercentageFeatureSet(Seurat_Obj, pattern = "^MT-") #NEW
+
+#VlnPlot(Seurat_Obj, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+#FeatureScatter(Seurat_Obj, feature1 = "nCount_RNA", feature2 = "nFeature_RNA") +
+ # geom_smooth(method = 'lm') #NEW
+
+# 2. Filtering -----------------
+#Seurat_Obj <- subset(Seurat_Obj, subset =  percent.mt < 2) #NEW
+
+#Applying normalization on the data - stored in @data
+Seurat_Obj = NormalizeData(Seurat_Obj)
+#Find differentially expressed genes between cells
+Seurat_Obj = FindVariableFeatures(Seurat_Obj)
+#Storing gene names
+all.genes = rownames(Seurat_Obj)
+#Scaling the raw data - stored in @scale
+Seurat_Obj = ScaleData(Seurat_Obj, assay='RNA',features = rownames(Seurat_Obj))#, vars.to.regress = "percent.mt")
+
+
+npcs_value = 50
+cluster_resolution = 0.8
+prplxty = 2
+#Perform linear dimensional reduction - PCA - stored under @reductions$pca
+Seurat_Obj = RunPCA(Seurat_Obj, features = VariableFeatures(object = Seurat_Obj), npcs = npcs_value)
+#Determine the ‘dimensionality’ of the dataset - which PCs to take
+ElbowPlot(Seurat_Obj, ndims = 40) + theme_classic()
+
+#TAKING THE MAX number of PCs from the list of all methods to find the elbow point
+n_dims_PCA <- max(findPC(sort(Seurat_Obj@reductions$pca@stdev,decreasing = TRUE), method='all', figure = T, number=40))
+#Finding neighbors, we don't need FindClustering, because we have our own set of Idents
+Seurat_Obj = FindNeighbors(Seurat_Obj, dims = 1:n_dims_PCA)
+#Accordingly clustering the cells
+cluster_resolution= 0.5 #0.8
+Seurat_Obj = FindClusters(Seurat_Obj, resolution = cluster_resolution)
+#Run tsne
+Seurat_Obj = RunTSNE(Seurat_Obj, dims = 1:n_dims_PCA, verbose = F)
+#TSNE plot
+TSNE_plot <- DimPlot(Seurat_Obj, reduction = "tsne", label= TRUE, pt.size=0.5)
+ggsave(plot = TSNE_plot,file = ".\\TSNE_SCRNA_Func.png", dpi=300, width=10, height=4.5)
+
+TSNE_plot_tissue <- DimPlot(Seurat_Obj, reduction = "tsne", label= TRUE, pt.size=0.5, group.by = "tissue")
+ggsave(plot = TSNE_plot_tissue,file = ".\\TSNE_plot_tissue.jpg", dpi=300, width=10, height=4.5)
+
+
+#all(rownames(Seurat_Obj[["pca"]]@cell.embeddings) == colnames(Seurat_Obj))
+# Reorder the cells in cell.embeddings$pca
+#Seurat_Obj[["pca"]]@cell.embeddings <- Seurat_Obj[["pca"]]@cell.embeddings[order(match(correct_order, #rownames(Seurat_Obj[["pca"]]@cell.embeddings))), ]
+#all(rownames(Seurat_Obj[["tsne"]]@cell.embeddings) == colnames(Seurat_Obj))
+#Seurat_Obj[["tsne"]]@cell.embeddings <- Seurat_Obj[["tsne"]]@cell.embeddings[order(match(correct_order, rownames(Seurat_Obj[["tsne"]]@cell.embeddings))), ]
+
+#c("FOXP3", "CD3E", "CD8A", "CD4", "ITGAM", "ITGAX", "HLA-DRB1", "CD14", "CD19", CD44, CD69)
+Feature_plot <- FeaturePlot(Seurat_Obj, features = c("CD8A", "CD44", "CD69","TNFRSF9","PDCD1"), order=TRUE, pt.size=0.5, reduction="tsne")
+ggsave(plot = Feature_plot,file = ".\\Features_SCRNA_Func.png", dpi=300, width=10, height=4.5)
+
+
+
+
+Seurat_Obj@active.ident = Seurat_Obj$seurat_clusters
+Seurat_Obj = RenameIdents(Seurat_Obj, 
+                       "0" = "0_CD8+_Tumor", 
+                       "1" = "1_CD8+_Tumor_LN", 
+                       "2" = "2_CD8+_Tumor", 
+                       "3" = "3_CD8+_Tumor", 
+                       "4" = "4_CD8+_Tumor", 
+                       "5" = "5_CD8+_LN",
+                       "6" = "6_CD8+_Tumor",
+                       "7" = "7_CD8+_Tumor",
+                       "8" = "8_CD8+_LN",
+                       "9" = "9_CD8+_Tumor",
+                       "10" = "10_CD8+_Tumor",
+                       "11" = "11_CD8+_LN",
+                       "12" = "12_CD8+_Tumor")
+
+
+#Updating orig.ident in metadata - merging Idents(Seurat_Obj) with metadata by rownames(cell ids)
+#Seurat_Obj@meta.data <- transform(merge(Seurat_Obj@meta.data,Idents(Seurat_Obj),by=0,all=TRUE), row.names=Row.names, Row.names=NULL)
+#Removing orig.ident column (it is old)
+#Seurat_Obj@meta.data <- Seurat_Obj@meta.data[,-which(colnames(Seurat_Obj@meta.data) == "orig.ident")]
+#Rename the colname y to orig.ident
+#colnames(Seurat_Obj@meta.data)[colnames(Seurat_Obj@meta.data) == "y"] ="orig.ident"
+#Relocating the new orig.ident column to be the first column
+#Seurat_Obj@meta.data <- Seurat_Obj@meta.data %>% relocate(orig.ident, .before = nCount_RNA)
+
+Seurat_Obj$orig.ident <- Seurat_Obj@active.ident
+
+# Create violin plots for each gene in CD44, CD69
+VlnPlot_CD44_CD69 <- VlnPlot(Seurat_Obj, features = c("CD44", "CD69"), group.by = "orig.ident")
+VlnPlot_CD44_CD69
+ggsave(plot = VlnPlot_CD44_CD69, file = ".\\VlnPlot_CD44_CD69.png", dpi=300, width=10, height=4.5)
+
+TSNE_Plot_Final <- DimPlot(Seurat_Obj, reduction = "tsne", label=FALSE, pt.size=0.5)
+ggsave(plot = TSNE_Plot_Final, file = ".\\TSNE_Named_SCRNA_Func.png", dpi=300, width=10, height=4.5)
+TSNE_Plot_Labeled_Final <- DimPlot(Seurat_Obj, reduction = "tsne", label=TRUE, pt.size=0.5)
+ggsave(plot = TSNE_Plot_Labeled_Final, file = ".\\TSNE_Named_SCRNA_Func_Labeled.png", dpi=300, width=10, height=4.5)
+
+# Find the top 20 marker genes for each cluster
+markers <- FindAllMarkers(Seurat_Obj, only.pos = TRUE, min.pct = 0.1, logfc.threshold = 0.25, test.use = "wilcox")
+
+#Extract the top 20 genes by p-value for each cluster
+
+top_genes_per_cluster <- lapply(unique(markers$cluster), function(cluster_id) {
+  cluster_markers <- subset(markers, cluster == cluster_id)
+  top_genes <- cluster_markers[order(cluster_markers$p_val_adj), "gene"]
+  top_genes <- head(top_genes, 20)
+  return(top_genes)
+})
+
+top_genes_per_cluster_df <- as.data.frame(top_genes_per_cluster)
+colnames(top_genes_per_cluster_df) <- c("Cluster_0","Cluster_1","Cluster_2","Cluster_3","Cluster_4","Cluster_5","Cluster_6","Cluster_7","Cluster_8","Cluster_9","Cluster_10","Cluster_11","Cluster_12")
+write.csv(top_genes_per_cluster_df, "Top_20_DE_Genes_By_FDR_Per_Cluster.csv")
+
+
+#Reorder cells in graphs
+
+#all(Cells(Seurat_Obj@graphs$RNA_nn) == colnames(Seurat_Obj))
+
+#Seurat_Obj@graphs$RNA_nn<- as.Graph(Seurat_Obj[['RNA_snn']][colnames(Seurat_Obj), colnames(Seurat_Obj)])
+#all(Cells(Seurat_Obj@graphs$RNA_nn) == colnames(Seurat_Obj))
+
+#all(Cells(Seurat_Obj@graphs$RNA_snn) == colnames(Seurat_Obj))
+#Seurat_Obj@graphs$RNA_snn<- as.Graph(Seurat_Obj[['RNA_snn']][colnames(Seurat_Obj), colnames(Seurat_Obj)])
+#all(Cells(Seurat_Obj@graphs$RNA_snn) == colnames(Seurat_Obj))
+
+#Find DEGenes between LN cells and Tumor cells in cluster 1
+
+cluster_1_cells <- Cells(subset(Seurat_Obj, idents = "1_CD8+_Tumor_LN"))
+cluster_1_subset <- subset(Seurat_Obj, cells = cluster_1_cells)
+
+# Define the two groups based on tissue classification
+tumor_cells <- row.names(subset(cluster_1_subset@meta.data, tissue == "tumor"))
+LN_cells <-  row.names(subset(cluster_1_subset@meta.data, tissue == "lymph node"))
+
+# Identify DE genes between the two groups
+DEG_Tumor_vs_LN_Cluster1 <- FindMarkers(cluster_1_subset, ident.1 = tumor_cells, ident.2 = LN_cells)
+DEG_Tumor_vs_LN_Cluster1_FDR_sig <- subset(DEG_Tumor_vs_LN_Cluster1, p_val_adj < 0.05)
+DEG_Tumor_vs_LN_Cluster1_FDR_sig <- DEG_Tumor_vs_LN_Cluster1_FDR_sig[order(DEG_Tumor_vs_LN_Cluster1_FDR_sig$p_val_adj),]
+write.csv(DEG_Tumor_vs_LN_Cluster1_FDR_sig, "DEG_Tumor_vs_LN_Cluster1_FDR_sig.csv")
+
+# Extract row names containing "RPL" or "MT" or "RPS"
+rows_to_remove <- grepl("RPL|MT|RPS", rownames(DEG_Tumor_vs_LN_Cluster1_FDR_sig))
+
+# Remove rows
+DEG_Tumor_vs_LN_Cluster1_FDR_sig_edited_rownames <- DEG_Tumor_vs_LN_Cluster1_FDR_sig[!rows_to_remove, ]
+
+write.csv(DEG_Tumor_vs_LN_Cluster1_FDR_sig_edited_rownames, "DEG_Tumor_vs_LN_Cluster1_FDR_sig_edited_rownames.csv")
+
+
+
+
+#Reorder cells in graphs
+#all(Cells(Seurat_Obj@graphs$RNA_nn) == colnames(Seurat_Obj))
+
+#Seurat_Obj@graphs$RNA_nn<- as.Graph(Seurat_Obj[['RNA_snn']][colnames(Seurat_Obj), colnames(Seurat_Obj)])
+#all(Cells(Seurat_Obj@graphs$RNA_nn) == colnames(Seurat_Obj))
+
+#all(Cells(Seurat_Obj@graphs$RNA_snn) == colnames(Seurat_Obj))
+#Seurat_Obj@graphs$RNA_snn<- as.Graph(Seurat_Obj[['RNA_snn']][colnames(Seurat_Obj), colnames(Seurat_Obj)])
+#all(Cells(Seurat_Obj@graphs$RNA_snn) == colnames(Seurat_Obj))
+
+
+
+DoHeatmap(subset(Seurat_Obj, idents = "1_CD8+_Tumor_LN"), features = rownames(DEG_Tumor_vs_LN_Cluster1_FDR_sig_edited_rownames %>% arrange(desc(avg_log2FC))),size =4,angle=0,hjust = 0.5, group.by = "tissue") + 
+    theme(text = element_text(size = 6))
+
+DoHeatmap(subset(Seurat_Obj, idents = "1_CD8+_Tumor_LN"), features = rownames(DEG_Tumor_vs_LN_Cluster1_FDR_sig_edited_rownames %>% arrange(desc(avg_log2FC))),size =4,angle=0,hjust = 0.5, group.by = "tissue",label = FALSE) + 
+    theme(text = element_text(size = 6))
+```
+
+```{r}
+
+#NO NEED
+#Add significance to VLN plot
+# Load necessary library
+library(ggsignif)
+
+# Extract expression data
+expression_data <- FetchData(Seurat_Obj, vars = c("CD44", "CD69", "orig.ident"))
+
+# Perform pairwise Wilcoxon test for CD44
+p_values_CD44 <- pairwise.wilcox.test(expression_data$CD44, expression_data$orig.ident, p.adjust.method = "BH")
+
+# Perform pairwise Wilcoxon test for CD69
+p_values_CD69 <- pairwise.wilcox.test(expression_data$CD69, expression_data$orig.ident, p.adjust.method = "BH")
+
+
+
+# Create Violin Plot for CD44 with significance
+VlnPlot_CD44 <- VlnPlot(Seurat_Obj, features = "CD44", group.by = "orig.ident") +
+  geom_signif(comparisons = list(c("0_CD8+_Tumor", "1_CD8+_LN")),
+              map_signif_level = TRUE,
+              test = "wilcox.test", position = "identity", stat= "signif") + ylim(0, 4)
+VlnPlot_CD44
+# Create Violin Plot for CD69 with significance
+VlnPlot_CD69 <- VlnPlot(Seurat_Obj, features = "CD69", group.by = "orig.ident") +
+  geom_signif(comparisons = list(c("0_CD8+_Tumor", "1_CD8+_LN")),
+              map_signif_level = TRUE,
+              test = "wilcox.test") + ylim(0, 4)
+
+# Combine the plots
+library(patchwork)
+VlnPlot_CD44_CD69 <- VlnPlot_CD44 + VlnPlot_CD69
+
+
+VlnPlot_CD44_CD69
+# Save the combined plot
+ggsave(plot = VlnPlot_CD44_CD69, file = ".\\VlnPlot_CD44_CD69_with_significance.png", dpi=300, width=10, height=4.5)
+
+
+```
+
+
+
+
+
+
+```{r}
+#Find DEGenes between LN cells and Tumor cells in clusters 4 and 8
+
+cluster_4_8_cells <- Cells(subset(Seurat_Obj, idents = c("8_CD8+_LN", "4_CD8+_Tumor")))
+cluster_4_8_subset <- subset(Seurat_Obj, cells = cluster_4_8_cells)
+
+# Define the two groups based on tissue classification
+tumor_cells <- row.names(subset(cluster_4_8_subset@meta.data, tissue == "tumor"))
+LN_cells <-  row.names(subset(cluster_4_8_subset@meta.data, tissue == "lymph node"))
+
+# Identify DE genes between the two groups
+DEG_Tumor_vs_LN_Cluster_4_8 <- FindMarkers(cluster_4_8_subset, ident.1 = tumor_cells, ident.2 = LN_cells)
+DEG_Tumor_vs_LN_Cluster_4_8_FDR_sig <- subset(DEG_Tumor_vs_LN_Cluster_4_8, p_val_adj < 0.05)
+DEG_Tumor_vs_LN_Cluster_4_8_FDR_sig <- DEG_Tumor_vs_LN_Cluster_4_8_FDR_sig[order(DEG_Tumor_vs_LN_Cluster_4_8_FDR_sig$p_val_adj),]
+write.csv(DEG_Tumor_vs_LN_Cluster_4_8_FDR_sig, "DEG_Tumor_vs_LN_Cluster_4_8_FDR_sig.csv")
+
+```
+
+
+
+```{r}
+
+#WITH FILTRATION
+library(findPC)
+library(ggplot2)
+library(dplyr)
+Seurat_Obj <- Seurat_CD8
+
+
+# Get the order of cells in the RNA assay
+#correct_order <- colnames(Seurat_Obj[["RNA"]]$counts)
+
+# Reorder the cells in active.ident
+#Seurat_Obj@active.ident <- Seurat_Obj@active.ident[match(correct_order, colnames(Seurat_Obj[["RNA"]]$counts))]
+
+Seurat_Obj[["percent.mt"]] <- PercentageFeatureSet(Seurat_Obj, pattern = "^MT-") #NEW
+
+VlnPlot(Seurat_Obj, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+FeatureScatter(Seurat_Obj, feature1 = "nCount_RNA", feature2 = "nFeature_RNA") +
+ geom_smooth(method = 'lm') #NEW
+
+# 2. Filtering -----------------
+Seurat_Obj <- subset(Seurat_Obj, subset = nFeature_RNA > 200 & nFeature_RNA < 2500 & percent.mt < 3) #NEW
+
+#Applying normalization on the data - stored in @data
+Seurat_Obj = NormalizeData(Seurat_Obj)
+#Find differentially expressed genes between cells
+Seurat_Obj = FindVariableFeatures(Seurat_Obj)
+#Storing gene names
+all.genes = rownames(Seurat_Obj)
+#Scaling the raw data - stored in @scale
+Seurat_Obj = ScaleData(Seurat_Obj, assay='RNA',features = rownames(Seurat_Obj))#, vars.to.regress = "percent.mt")
+
+
+npcs_value = 50
+cluster_resolution = 0.8
+prplxty = 2
+#Perform linear dimensional reduction - PCA - stored under @reductions$pca
+Seurat_Obj = RunPCA(Seurat_Obj, features = VariableFeatures(object = Seurat_Obj), npcs = npcs_value)
+#Determine the ‘dimensionality’ of the dataset - which PCs to take
+ElbowPlot(Seurat_Obj, ndims = 40) + theme_classic()
+
+#TAKING THE MAX number of PCs from the list of all methods to find the elbow point
+n_dims_PCA <- max(findPC(sort(Seurat_Obj@reductions$pca@stdev,decreasing = TRUE), method='all', figure = T, number=40))
+#Finding neighbors, we don't need FindClustering, because we have our own set of Idents
+Seurat_Obj = FindNeighbors(Seurat_Obj, dims = 1:n_dims_PCA)
+#Accordingly clustering the cells
+cluster_resolution= 0.5 #0.8
+Seurat_Obj = FindClusters(Seurat_Obj, resolution = cluster_resolution)
+#Run tsne
+Seurat_Obj = RunTSNE(Seurat_Obj, dims = 1:n_dims_PCA, verbose = F)
+#TSNE plot
+TSNE_plot <- DimPlot(Seurat_Obj, reduction = "tsne", label= TRUE, pt.size=0.5)
+ggsave(plot = TSNE_plot,file = ".\\Filtered\\TSNE_SCRNA_Func.png", dpi=300, width=10, height=4.5)
+
+TSNE_plot_tissue <- DimPlot(Seurat_Obj, reduction = "tsne", label= TRUE, pt.size=0.5, group.by = "tissue")
+ggsave(plot = TSNE_plot_tissue,file = ".\\Filtered\\TSNE_plot_tissue.jpg", dpi=300, width=10, height=4.5)
+
+
+#all(rownames(Seurat_Obj[["pca"]]@cell.embeddings) == colnames(Seurat_Obj))
+# Reorder the cells in cell.embeddings$pca
+#Seurat_Obj[["pca"]]@cell.embeddings <- Seurat_Obj[["pca"]]@cell.embeddings[order(match(correct_order, #rownames(Seurat_Obj[["pca"]]@cell.embeddings))), ]
+#all(rownames(Seurat_Obj[["tsne"]]@cell.embeddings) == colnames(Seurat_Obj))
+#Seurat_Obj[["tsne"]]@cell.embeddings <- Seurat_Obj[["tsne"]]@cell.embeddings[order(match(correct_order, rownames(Seurat_Obj[["tsne"]]@cell.embeddings))), ]
+
+#c("FOXP3", "CD3E", "CD8A", "CD4", "ITGAM", "ITGAX", "HLA-DRB1", "CD14", "CD19", CD44, CD69)
+Feature_plot <- FeaturePlot(Seurat_Obj, features = c("CD8A", "CD44", "CD69","TNFRSF9","PDCD1"), order=TRUE, pt.size=0.5, reduction="tsne", min.cutoff ='q40')
+ggsave(plot = Feature_plot,file = ".\\Filtered\\Features_SCRNA_Func.png", dpi=300, width=10, height=4.5)
+
+
+
+
+Seurat_Obj@active.ident = Seurat_Obj$seurat_clusters
+Seurat_Obj = RenameIdents(Seurat_Obj, 
+                       "0" = "0_CD8+_Tumor", 
+                       "1" = "1_CD8+_Tumor", 
+                       "2" = "2_CD8+_Tumor_LN", 
+                       "3" = "3_CD8+_Tumor", 
+                       "4" = "4_CD8+_Tumor_LN", 
+                       "5" = "5_CD8+_Tumor",
+                       "6" = "6_CD8+_LN",
+                       "7" = "7_CD8+_Tumor",
+                       "8" = "8_CD8+_LN",
+                       "9" = "9_CD8+_Tumor",
+                       "10" = "10_CD8+_LN")
+
+
+#Updating orig.ident in metadata - merging Idents(Seurat_Obj) with metadata by rownames(cell ids)
+#Seurat_Obj@meta.data <- transform(merge(Seurat_Obj@meta.data,Idents(Seurat_Obj),by=0,all=TRUE), row.names=Row.names, Row.names=NULL)
+#Removing orig.ident column (it is old)
+#Seurat_Obj@meta.data <- Seurat_Obj@meta.data[,-which(colnames(Seurat_Obj@meta.data) == "orig.ident")]
+#Rename the colname y to orig.ident
+#colnames(Seurat_Obj@meta.data)[colnames(Seurat_Obj@meta.data) == "y"] ="orig.ident"
+#Relocating the new orig.ident column to be the first column
+#Seurat_Obj@meta.data <- Seurat_Obj@meta.data %>% relocate(orig.ident, .before = nCount_RNA)
+
+Seurat_Obj$orig.ident <- Seurat_Obj@active.ident
+
+# Create violin plots for each gene in CD44, CD69
+VlnPlot_CD44_CD69 <- VlnPlot(Seurat_Obj, features = c("CD44", "CD69"), group.by = "orig.ident")
+VlnPlot_CD44_CD69
+ggsave(plot = VlnPlot_CD44_CD69, file = ".\\Filtered\\VlnPlot_CD44_CD69.png", dpi=300, width=10, height=4.5)
+
+TSNE_Plot_Final <- DimPlot(Seurat_Obj, reduction = "tsne", label=FALSE, pt.size=0.5)
+ggsave(plot = TSNE_Plot_Final, file = ".\\Filtered\\TSNE_Named_SCRNA_Func.png", dpi=300, width=10, height=4.5)
+TSNE_Plot_Labeled_Final <- DimPlot(Seurat_Obj, reduction = "tsne", label=TRUE, pt.size=0.5)
+ggsave(plot = TSNE_Plot_Labeled_Final, file = ".\\Filtered\\TSNE_Named_SCRNA_Func_Labeled.png", dpi=300, width=10, height=4.5)
+
+# Find the top 20 marker genes for each cluster
+markers <- FindAllMarkers(Seurat_Obj, only.pos = TRUE, min.pct = 0.1, logfc.threshold = 0.25, test.use = "wilcox")
+
+#Extract the top 20 genes by p-value for each cluster
+
+top_genes_per_cluster <- lapply(unique(markers$cluster), function(cluster_id) {
+  cluster_markers <- subset(markers, cluster == cluster_id)
+  top_genes <- cluster_markers[order(cluster_markers$p_val_adj), "gene"]
+  top_genes <- head(top_genes, 20)
+  return(top_genes)
+})
+
+top_genes_per_cluster_df <- as.data.frame(top_genes_per_cluster)
+colnames(top_genes_per_cluster_df) <- c("Cluster_0","Cluster_1","Cluster_2","Cluster_3","Cluster_4","Cluster_5","Cluster_6","Cluster_7","Cluster_8","Cluster_9","Cluster_10")
+write.csv(top_genes_per_cluster_df, ".\\Filtered\\Top_20_DE_Genes_By_FDR_Per_Cluster.csv")
+
+
+#Reorder cells in graphs
+
+#all(Cells(Seurat_Obj@graphs$RNA_nn) == colnames(Seurat_Obj))
+
+#Seurat_Obj@graphs$RNA_nn<- as.Graph(Seurat_Obj[['RNA_snn']][colnames(Seurat_Obj), colnames(Seurat_Obj)])
+#all(Cells(Seurat_Obj@graphs$RNA_nn) == colnames(Seurat_Obj))
+
+#all(Cells(Seurat_Obj@graphs$RNA_snn) == colnames(Seurat_Obj))
+#Seurat_Obj@graphs$RNA_snn<- as.Graph(Seurat_Obj[['RNA_snn']][colnames(Seurat_Obj), colnames(Seurat_Obj)])
+#all(Cells(Seurat_Obj@graphs$RNA_snn) == colnames(Seurat_Obj))
+
+#Find DEGenes between LN cells and Tumor cells in cluster 1
+
+cluster_2_cells <- Cells(subset(Seurat_Obj, idents = "2_CD8+_Tumor_LN"))
+cluster_2_subset <- subset(Seurat_Obj, cells = cluster_2_cells)
+
+# Define the two groups based on tissue classification
+tumor_cells <- row.names(subset(cluster_2_subset@meta.data, tissue == "tumor"))
+LN_cells <-  row.names(subset(cluster_2_subset@meta.data, tissue == "lymph node"))
+
+# Identify DE genes between the two groups
+DEG_Tumor_vs_LN_Cluster2 <- FindMarkers(cluster_2_subset, ident.1 = tumor_cells, ident.2 = LN_cells)
+DEG_Tumor_vs_LN_Cluster2_FDR_sig <- subset(DEG_Tumor_vs_LN_Cluster2, p_val_adj < 0.05)
+DEG_Tumor_vs_LN_Cluster2_FDR_sig <- DEG_Tumor_vs_LN_Cluster2_FDR_sig[order(DEG_Tumor_vs_LN_Cluster2_FDR_sig$p_val_adj),]
+write.csv(DEG_Tumor_vs_LN_Cluster2_FDR_sig, ".\\Filtered\\DEG_Tumor_vs_LN_Cluster1_FDR_sig.csv")
+
+# Extract row names containing "RPL" or "MT" or "RPS"
+rows_to_remove <- grepl("RPL|MT|RPS", rownames(DEG_Tumor_vs_LN_Cluster2_FDR_sig))
+
+# Remove rows
+DEG_Tumor_vs_LN_Cluster2_FDR_sig_edited_rownames <- DEG_Tumor_vs_LN_Cluster2_FDR_sig[!rows_to_remove, ]
+
+write.csv(DEG_Tumor_vs_LN_Cluster2_FDR_sig_edited_rownames, ".\\Filtered\\DEG_Tumor_vs_LN_Cluster1_FDR_sig_edited_rownames.csv")
+
+
+
+
+#Reorder cells in graphs
+#all(Cells(Seurat_Obj@graphs$RNA_nn) == colnames(Seurat_Obj))
+
+#Seurat_Obj@graphs$RNA_nn<- as.Graph(Seurat_Obj[['RNA_snn']][colnames(Seurat_Obj), colnames(Seurat_Obj)])
+#all(Cells(Seurat_Obj@graphs$RNA_nn) == colnames(Seurat_Obj))
+
+#all(Cells(Seurat_Obj@graphs$RNA_snn) == colnames(Seurat_Obj))
+#Seurat_Obj@graphs$RNA_snn<- as.Graph(Seurat_Obj[['RNA_snn']][colnames(Seurat_Obj), colnames(Seurat_Obj)])
+#all(Cells(Seurat_Obj@graphs$RNA_snn) == colnames(Seurat_Obj))
+
+
+
+DoHeatmap(subset(Seurat_Obj, idents = "2_CD8+_Tumor_LN"), features = rownames(DEG_Tumor_vs_LN_Cluster2_FDR_sig_edited_rownames %>% arrange(desc(avg_log2FC))),size =4,angle=0,hjust = 0.5, group.by = "tissue") + 
+    theme(text = element_text(size = 6))
+
+DoHeatmap(subset(Seurat_Obj, idents = "2_CD8+_Tumor_LN"), features = rownames(DEG_Tumor_vs_LN_Cluster2_FDR_sig_edited_rownames %>% arrange(desc(avg_log2FC))),size =4,angle=0,hjust = 0.5, group.by = "tissue",label = FALSE) + 
+    theme(text = element_text(size = 6))
+```

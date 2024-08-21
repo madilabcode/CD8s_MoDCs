@@ -1,0 +1,137 @@
+---
+title: "Paired_T-Test_Cytof_Results_Ayelet"
+author: "Kfir Inbal"
+date: "2024-05-19"
+output: html_document
+---
+
+
+```{r}
+
+library(readxl)
+library(tidyverse)
+library(ggpubr)
+library(rstatix)
+```
+
+
+
+```{r}
+
+CD8_PD1_Tumor <- as.data.frame(read_excel(".\\CD8_PD1_Tumor.xlsx"))
+CD8_PD1_Tumor <- data.frame(CD8_PD1_Tumor[,-1], row.names=CD8_PD1_Tumor[,1])
+colnames(CD8_PD1_Tumor) <- c("CD45+CD3+", "CD8+PD1+", "Granzyme B")
+CD8_PD1_Tumor <- CD8_PD1_Tumor[-10,]
+
+
+CD8_PD1_LN <- as.data.frame(read_excel(".\\CD8_PD1_LN.xlsx"))
+CD8_PD1_LN <- data.frame(CD8_PD1_LN[,-1], row.names=CD8_PD1_LN[,1])
+colnames(CD8_PD1_LN) <- c("CD45+CD3+", "CD8+PD1+", "Granzyme B")
+
+CD8_CD69_Tumor <- as.data.frame(read_excel(".\\CD8_CD69_Tumor.xlsx"))
+CD8_CD69_Tumor <- data.frame(CD8_CD69_Tumor[,-1], row.names=CD8_CD69_Tumor[,1])
+colnames(CD8_CD69_Tumor) <- c("CD45+CD3+", "CD8+CD69+", "Granzyme B")
+CD8_CD69_Tumor <- CD8_CD69_Tumor[-10,]
+
+CD8_CD69_LN <- as.data.frame(read_excel(".\\CD8_CD69_LN.xlsx"))
+CD8_CD69_LN <- data.frame(CD8_CD69_LN[,-1], row.names=CD8_CD69_LN[,1])
+colnames(CD8_CD69_LN) <- c("CD45+CD3+", "CD8+CD69+", "Granzyme B")
+
+
+
+```
+
+
+```{r}
+
+paired_t_test <- function(data, group1, group2) {
+  
+}
+
+```
+
+
+```{r}
+#PD1
+
+# Create a data frame for plotting
+data <- data.frame(
+  Tissue = rep(c("Tumor", "LN"), each = length(CD8_PD1_Tumor$`Granzyme B`)),
+  Value = c(CD8_PD1_Tumor$`Granzyme B`, CD8_PD1_LN$`Granzyme B`)
+)
+
+Tumor = CD8_PD1_Tumor$`Granzyme B`
+LN = CD8_PD1_LN$`Granzyme B`
+
+# Compute t-test
+#res <- t.test(Tumor, LN, paired = TRUE)
+#res
+
+#res_df <- t.test(Value ~ Tissue, data = data, paired = TRUE)
+#res_df
+
+#Statistics
+stat.test <- data  %>% 
+  t_test(Value ~ Tissue, paired = TRUE) %>%
+  add_significance()
+stat.test
+
+
+# Create a box plot
+bxp <- ggpaired(data, x = "Tissue", y = "Value", 
+         order = c("Tumor", "LN"),
+         ylab = "Granzyme B Expression", xlab = "Tissue", title = "Granzyme B Expression in CD8+PD1+ T cells")
+
+# Add p-value and significance levels
+stat.test <- stat.test %>% add_xy_position(x = "Tissue")
+bxp + 
+  stat_pvalue_manual(stat.test, tip.length = 0) +
+  labs(subtitle = get_test_label(stat.test, detailed= TRUE))
+
+ggsave("Granzyme_B_Expression_CD8+PD1+_Cytof_Paired_T-test.png", dpi=300, width=7, height=8)
+
+```
+
+
+
+
+```{r}
+#CD69
+
+# Create a data frame for plotting
+data_CD69 <- data.frame(
+  Tissue = rep(c("Tumor", "LN"), each = length(CD8_CD69_Tumor$`Granzyme B`)),
+  Value = c(CD8_CD69_Tumor$`Granzyme B`, CD8_CD69_LN$`Granzyme B`)
+)
+
+Tumor_CD69 = CD8_CD69_Tumor$`Granzyme B`
+LN_CD69 = CD8_CD69_LN$`Granzyme B`
+
+# Compute t-test
+#res <- t.test(Tumor_CD69, LN_CD69, paired = TRUE)
+#res
+
+#res_df <- t.test(Value ~ Tissue, data = data_CD69, paired = TRUE)
+#res_df
+
+#Statistics
+stat.test_CD69 <- data_CD69  %>% 
+  t_test(Value ~ Tissue, paired = TRUE) %>%
+  add_significance()
+stat.test_CD69
+
+
+# Create a box plot
+bxp <- ggpaired(data_CD69, x = "Tissue", y = "Value", 
+         order = c("Tumor", "LN"),
+         ylab = "Granzyme B Expression", xlab = "Tissue", title = "Granzyme B Expression in CD8+CD69+ T cells")
+
+# Add p-value and significance levels
+stat.test_CD69 <- stat.test_CD69 %>% add_xy_position(x = "Tissue")
+bxp + 
+  stat_pvalue_manual(stat.test_CD69, tip.length = 0) +
+  labs(subtitle = get_test_label(stat.test_CD69, detailed= TRUE))
+ggsave("Granzyme_B_Expression_CD8+CD69+_Cytof_Paired_T-test.png", dpi=300, width=7, height=8)
+
+
+```
