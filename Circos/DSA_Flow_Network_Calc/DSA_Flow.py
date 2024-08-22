@@ -958,20 +958,87 @@ for gene, fdr_corrected in zip(receptor_names, fdr_corrected_p_values):
     p_values_1samp_ttest[gene] = {
         'DSA': normalized_flow_values_dict[gene],
         'p_value': p_values_1samp_ttest[gene],
-        'fdr_value': fdr_corrected
+        'fdr_value': fdr_corrected,
+        'n': len(flows_outdegree[gene])
     }
     
 
 final_DSA_DF = pd.DataFrame([
-    {'Receptor': gene, 'DSA': values['DSA'],'p_value': values['p_value'], 'fdr_value': values['fdr_value']}
+    {'Receptor': gene, 'DSA': values['DSA'],'p_value': values['p_value'], 'fdr_value': values['fdr_value'], 'n': values['n']}
     for gene, values in p_values_1samp_ttest.items()
 ])
 
 final_DSA_DF.set_index(final_DSA_DF.Receptor, inplace=True, drop =False)
 final_DSA_DF.index.names = [None]
-final_DSA_DF["n"] = 3
+#final_DSA_DF["n"] = 3
 final_DSA_DF.to_csv("C:\Kfir_Thesis_Asaf_Madi\Project_2 - BulkRNAseq\Circos_Code\DSA_Flow_Calculation_DF.csv")
 #%%
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
