@@ -1,0 +1,850 @@
+---
+title: "MousePPI_Conversion"
+author: "Kfir Inbal"
+date: "2024-02-21"
+output: html_document
+---
+
+```{r}
+#CHECK
+#PPI_1<- read.csv("C:\\Kfir_Thesis_Asaf_Madi\\Project_2 - BulkRNAseq\\Circos_Code\\DSA_Flow_Network_Calc\\mippie_ppi_v1_0_symbols_NEW_getBM.csv", row.names = 1)
+
+PPI_2 <- read.csv("C:\\Kfir_Thesis_Asaf_Madi\\Project_2 - BulkRNAseq\\Circos_Code\\DSA_Flow_Network_Calc\\mippie_ppi_v1_0_symbols.csv", row.names = 1)
+
+PPI_3 <-  read.csv("C:\\Kfir_Thesis_Asaf_Madi\\Project_2 - BulkRNAseq\\Circos_Code\\DSA_Flow_Network_Calc\\mippie_ppi_v1_0_symbols_NEW_getBM_CHECK.csv", row.names = 1)
+
+all(PPI_2$GeneNameB == PPI_3$GeneNameB)
+
+```
+
+```{r}
+# Load the org.Mm.eg.db package for mouse gene annotation
+library(dplyr)
+
+mippie_ppi_v1_0 <- read.table("C:\\Kfir_Thesis_Asaf_Madi\\Project_2 - BulkRNAseq\\Circos_Code\\DSA_Flow_Network_Calc\\mippie_ppi_v1_0.tsv", sep = '\t',header = T)
+
+mippie_ppi_v1_0 <- mippie_ppi_v1_0[,which(colnames(mippie_ppi_v1_0) %in% c("entrezA","entrezB"))]
+
+```
+
+
+```{r}
+
+
+###############################ANALYSIS FOR mippie_ppi_v1_0 using getBM ##################################
+
+# Load the biomaRt package
+library(biomaRt)
+
+
+data <- mippie_ppi_v1_0
+
+# Specify the Ensembl database to use
+ensembl <- useMart("ensembl", dataset = "mmusculus_gene_ensembl")
+
+#Convert mouse gene entrez ids A to mouse gene symbols
+entrezA_genes <- getBM(attributes = c("entrezgene_id", "mgi_symbol"),
+                     filters = "entrezgene_id",
+                     values = data$entrezA,
+                     mart = ensembl)
+
+#entrezA_genes <- unique(entrezA_genes)
+
+
+# Convert entrezB to gene symbols
+entrezB_genes <- getBM(attributes = c("entrezgene_id", "mgi_symbol"),
+                     filters = "entrezgene_id",
+                     values = data$entrezB,
+                     mart = ensembl)
+
+#entrezB_genes <- unique(entrezB_genes)
+
+#Tnfrsf12a = 27279
+#its ppis are 7185 7186 7187 7188
+# Merge the gene symbols back to the original dataframe
+data_symb <- merge(data, entrezA_genes, by.x = "entrezA", by.y = "entrezgene_id", all.x = TRUE)
+data_symb_F <- merge(data_symb, entrezB_genes, by.x = "entrezB", by.y = "entrezgene_id", all.x = TRUE)
+
+data_symb_F <- data_symb_F %>% dplyr::select(c("mgi_symbol.x","mgi_symbol.y"))
+
+any(is.na(data_symb_F))
+data_symb_F <- na.omit(data_symb_F)
+data_symb_F <- data_symb_F[!apply(data_symb_F == "", 1, any), ] #1 indicates rows
+# Rename the columns to geneSymbolA and geneSymbolB
+colnames(data_symb_F) <- c("GeneNameA","GeneNameB")
+data_symb_F_unique <- unique(data_symb_F)
+
+
+write.csv(data_symb_F_unique, ".\\mippie_ppi_v1_0_symbols_NEW_getBM.csv")
+```
+
+
+```{r}
+
+
+###############################ANALYSIS FOR mippie_ppi_v1_0 using query_many ##################################
+
+# Load the biomaRt package
+#library(biomaRt)
+#library(annotate)
+#library(org.Mm.eg.db)
+#library("AnnotationDbi")
+library("mygene")
+
+
+data <- mippie_ppi_v1_0
+
+
+#Convert mouse gene entrez ids A to mouse gene symbols
+entrezA_genes <- as.data.frame(queryMany(data$entrezA, fields = c("entrezgene", "symbol"), species = "mouse", size = 1))
+
+#Filter out rows that were not found
+entrezA_genes <- entrezA_genes %>% dplyr::filter(is.na(notfound))
+#Select only columns entrezgene and symbol 
+entrezA_genes <- entrezA_genes[,which(colnames(entrezA_genes) %in% c("entrezgene", "symbol"))]
+
+entrezA_genes <- unique(entrezA_genes)
+
+
+# Convert entrezB to gene symbols
+entrezB_genes <- as.data.frame(queryMany(data$entrezB, fields = c("entrezgene", "symbol"), species = "mouse", size = 1))
+
+#Filter out rows that were not found
+entrezB_genes <- entrezB_genes %>% dplyr::filter(is.na(notfound))
+#Select only columns entrezgene and symbol 
+entrezB_genes <- entrezB_genes[,which(colnames(entrezB_genes) %in% c("entrezgene", "symbol"))]
+
+entrezB_genes <- unique(entrezB_genes)
+
+#Tnfrsf12a = 27279
+#its ppis are 7185 7186 7187 7188
+# Merge the gene symbols back to the original dataframe
+data_symb <- merge(data, entrezA_genes, by.x = "entrezA", by.y = "entrezgene")
+data_symb_F <- merge(data_symb, entrezB_genes, by.x = "entrezB", by.y = "entrezgene")# all.x = TRUE)
+
+data_symb_F <- data_symb_F %>% dplyr::select(c("symbol.x","symbol.y"))
+
+any(is.na(data_symb_F))
+#data_symb_F <- na.omit(data_symb_F)
+data_symb_F <- data_symb_F[!apply(data_symb_F == "", 1, any), ] #1 indicates rows
+# Rename the columns to geneSymbolA and geneSymbolB
+colnames(data_symb_F) <- c("GeneNameA","GeneNameB")
+data_symb_F_unique <- unique(data_symb_F)
+
+
+write.csv(data_symb_F_unique, ".\\mippie_ppi_v1_0_symbols_NEW.csv")
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+
+# Load the org.Mm.eg.db package for mouse gene annotation
+library(dplyr)
+
+pickle_ppi_cross_checked_v3_3 <- read.table("C:\\Kfir_Thesis_Asaf_Madi\\Project_2 - BulkRNAseq\\Circos_Code\\DSA_Flow_Network_Calc\\GeneNormalizedTabular-default-cross_checked_Pickle3.3.txt", sep = '\t',header = T)
+
+pickle_ppi_cross_checked_v3_3 <- pickle_ppi_cross_checked_v3_3[,which(colnames(pickle_ppi_cross_checked_v3_3) %in% c("InteractorA","InteractorB"))]
+
+names(pickle_ppi_cross_checked_v3_3)[names(pickle_ppi_cross_checked_v3_3) == 'InteractorA'] <- 'entrezA'
+names(pickle_ppi_cross_checked_v3_3)[names(pickle_ppi_cross_checked_v3_3) == 'InteractorB'] <- 'entrezB'
+
+
+```
+
+
+```{r}
+
+# Load the org.Mm.eg.db package for mouse gene annotation
+library(dplyr)
+
+pickle_ppi_v3_3 <- read.table("C:\\Kfir_Thesis_Asaf_Madi\\Project_2 - BulkRNAseq\\Circos_Code\\DSA_Flow_Network_Calc\\GeneNormalizedTabular-standard_Pickle3.3.txt", sep = '\t',header = T)
+
+pickle_ppi_v3_3 <- pickle_ppi_v3_3[,which(colnames(pickle_ppi_v3_3) %in% c("InteractorA","InteractorB"))]
+
+names(pickle_ppi_v3_3)[names(pickle_ppi_v3_3) == 'InteractorA'] <- 'entrezA'
+names(pickle_ppi_v3_3)[names(pickle_ppi_v3_3) == 'InteractorB'] <- 'entrezB'
+
+
+```
+
+
+
+
+
+
+
+
+```{r}
+
+###############################ANALYSIS FOR pickle_ppi_v3_3 Standard ##################################
+# Load the biomaRt package
+#library(biomaRt)
+#library(annotate)
+#library(org.Mm.eg.db)
+#library("AnnotationDbi")
+library("mygene")
+
+#data <- pickle_ppi_cross_checked_v3_3
+
+data <- pickle_ppi_v3_3
+#data <- mippie_ppi_v1_0
+
+#Convert mouse gene entrez ids A to mouse gene symbols
+entrezA_genes <- as.data.frame(queryMany(data$entrezA, fields = c("entrezgene", "symbol"), species = "mouse", size = 1))
+#Some entrez gene ids do not convert to mouse genes cause they are human genes that were obtained from cross-species studies
+entrezA_not_converted <- unique(entrezA_genes[which(entrezA_genes$notfound == TRUE),1])
+#Convert notfound gene entrez ids to human gene symbols
+entrezA_Human_genes <- as.data.frame(queryMany(entrezA_not_converted, fields = c("entrezgene", "symbol"), species = "human", size = 1))
+
+unloadNamespace("mygene")
+unloadNamespace("GenomicFeatures")
+library(biomaRt)
+human = useMart(host = "https://jan2019.archive.ensembl.org",biomart = "ensembl", dataset = "hsapiens_gene_ensembl")
+mouse = useMart(host = "https://jan2019.archive.ensembl.org",biomart = "ensembl", dataset = "mmusculus_gene_ensembl")
+updatedHuman <- useEnsembl(biomart = "ensembl", dataset = "hsapiens_gene_ensembl")
+
+entrezA_Human_to_Mouse <- getBM(attributes = c("external_gene_name", "mmusculus_homolog_associated_gene_name"),
+                  filters = "external_gene_name",
+                  values = entrezA_Human_genes$symbol ,
+                  mart = updatedHuman)
+
+#Extract all unique values from column external_gene_name that have an empty value "" in column mmusculus_homolog_associated_gene_name
+entrezA_not_found_homolgs <- entrezA_Human_to_Mouse %>%
+  group_by(external_gene_name) %>%
+  filter(n() == 1 & mmusculus_homolog_associated_gene_name == "") %>%
+  pull(external_gene_name)
+
+#setdiff(entrezA_Human_genes$symbol,entrezA_Human_to_Mouse$external_gene_name)
+
+
+#Remove all unique values from column external_gene_name that have an empty value "" in column mmusculus_homolog_associated_gene_name
+entrezA_Human_to_Mouse <- entrezA_Human_to_Mouse %>%
+  group_by(external_gene_name) %>%
+  filter(!(n() == 1 & mmusculus_homolog_associated_gene_name == ""))
+
+#Remove rows with empty values
+entrezA_Human_to_Mouse <- entrezA_Human_to_Mouse[!apply(entrezA_Human_to_Mouse == "", 1, any), ] #1 indicates rows
+#CHECK
+entrezA_Human_to_Mouse$external_gene_name[duplicated(entrezA_Human_to_Mouse$external_gene_name)]
+
+
+#Keep rows where the value in column external_gene_name is the same as the value in column mmusculus_homolog_associated_gene_name after capitalization 
+entrezA_Human_to_Mouse_homologCaps <- entrezA_Human_to_Mouse %>%
+  filter(toupper(external_gene_name) == toupper(mmusculus_homolog_associated_gene_name))
+
+#Rows with homologues with different names
+entrezA_Human_to_Mouse_diffNames <- entrezA_Human_to_Mouse %>%
+  filter(!(toupper(external_gene_name) == toupper(mmusculus_homolog_associated_gene_name)) & mmusculus_homolog_associated_gene_name != "")
+#Rows with homologues with different names that do not exist in entrezA_Human_to_Mouse_homologCaps
+entrezA_Human_to_Mouse_diffNames <- entrezA_Human_to_Mouse_diffNames[-which(entrezA_Human_to_Mouse_diffNames$external_gene_name %in% entrezA_Human_to_Mouse_homologCaps$external_gene_name),]
+
+#choose the smallest lexicographically value in column mmusculus_homolog_associated_gene_name for rows where external_gene_name repeats more than once with different values in mmusculus_homolog_associated_gene_name
+entrezA_Human_to_Mouse_diffNames <- entrezA_Human_to_Mouse_diffNames %>%
+  group_by(external_gene_name) %>%
+  mutate(count = n(),
+         y_min = ifelse(count > 1 & length(unique(mmusculus_homolog_associated_gene_name)) > 1, min(mmusculus_homolog_associated_gene_name, na.rm = TRUE), mmusculus_homolog_associated_gene_name)) %>%
+  filter(!is.na(y_min)) %>%
+  dplyr::select(-count)
+
+#Choose only columns external_gene_name and y_min
+entrezA_Human_to_Mouse_diffNames <- entrezA_Human_to_Mouse_diffNames[,c(1,3)]
+#Change colnames
+colnames(entrezA_Human_to_Mouse_diffNames) <- c("external_gene_name","mmusculus_homolog_associated_gene_name")
+#unique rows
+entrezA_Human_to_Mouse_diffNames <- unique(entrezA_Human_to_Mouse_diffNames)
+
+entrezA_Human_to_Mouse <- entrezA_Human_to_Mouse_homologCaps
+#Binding rows of final entrezA_Human_to_Mouse_diffNames with entrezA_Human_to_Mouse
+entrezA_Human_to_Mouse <- rbind(entrezA_Human_to_Mouse, entrezA_Human_to_Mouse_diffNames)
+
+# Create a new dataframe with the list values
+#entrezA_not_found_homolgs_df <- data.frame(external_gene_name = entrezA_not_found_homolgs, mmusculus_homolog_associated_gene_name = entrezA_not_found_homolgs)
+
+# Binding entrezA_not_found_homolgs human genes to entrezA_Human_to_Mouse and leaving them as they are -
+#entrezA_Human_to_Mouse <- bind_rows(entrezA_Human_to_Mouse, entrezA_not_found_homolgs_df)
+#CHECK:
+setdiff(entrezA_Human_genes$symbol,entrezA_Human_to_Mouse$external_gene_name)
+#For some reason it didn't find NHSL3, so adding physically
+entrezA_Human_to_Mouse <- bind_rows(entrezA_Human_to_Mouse, data.frame(external_gene_name = "NHSL3", mmusculus_homolog_associated_gene_name = "Nhsl3"))
+
+
+
+#Changing colnames
+colnames(entrezA_Human_to_Mouse) <- c("symbol", "MGI.symbol")
+#Merging MGI.symbol to entrezA_Human_genes by human symbol column
+entrezA_Human_genes <- merge(entrezA_Human_genes, entrezA_Human_to_Mouse, by = "symbol")
+#Select only columns entrezgene and symbol in HUMAN
+entrezA_Human_genes <- entrezA_Human_genes[,which(colnames(entrezA_Human_genes) %in% c("entrezgene", "MGI.symbol"))]
+#CHECK
+#entrezA_Human_genes <- entrezA_Human_genes[,which(colnames(entrezA_Human_genes) %in% c("entrezgene", "symbol"))]
+#Changing colnames
+colnames(entrezA_Human_genes) <- c("entrezgene", "symbol")
+unloadNamespace("GenomicFeatures")
+unloadNamespace("biomaRt")
+library("mygene")
+
+
+
+
+#Filter out rows that were not found
+entrezA_genes <- entrezA_genes %>% dplyr::filter(is.na(notfound))
+#Select only columns entrezgene and symbol 
+entrezA_genes <- entrezA_genes[,which(colnames(entrezA_genes) %in% c("entrezgene", "symbol"))]
+
+entrezA_genes <- unique(entrezA_genes)
+#Binding gene entrez to gene symbol of mouse and human
+entrezA_genes <- rbind(entrezA_genes, entrezA_Human_genes)
+#entrezA_genes <- unique(entrezA_genes)
+
+
+# Convert entrezB to gene symbols
+entrezB_genes <- as.data.frame(queryMany(data$entrezB, fields = c("entrezgene", "symbol"), species = "mouse", size = 1))
+#Some entrez gene ids do not convert to mouse genes cause they are human genes that were obtained from cross-species studies
+entrezB_not_converted <- unique(entrezB_genes[which(entrezB_genes$notfound == TRUE),1])
+#Convert notfound gene entrez ids to human gene symbols
+entrezB_Human_genes <- as.data.frame(queryMany(entrezB_not_converted, fields = c("entrezgene", "symbol"), species = "human", size = 1))
+#There was only one human entrez id that wasn't converted so I looked it up and apparently they changed its name and entrez id, so I apply it physically:
+entrezB_Human_genes[which(entrezB_Human_genes$query == 9220),which(colnames(entrezB_Human_genes) == "symbol")] <- "MYO18A"
+entrezB_Human_genes[which(entrezB_Human_genes$query == 9220),which(colnames(entrezB_Human_genes) == "entrezgene")] <- 9220
+
+#remove notfound column:
+entrezB_Human_genes <- entrezB_Human_genes[,-which(colnames(entrezB_Human_genes) == "notfound")]
+
+unloadNamespace("mygene")
+unloadNamespace("GenomicFeatures")
+library(biomaRt)
+
+
+#Converting human gene names to mouse gene names
+#entrezB_Human_to_Mouse <- getLDS(attributes = c("external_gene_name"), attributesL = c("mgi_symbol"), 
+#    uniqueRows = T, filters = 'hgnc_symbol', values=entrezB_Human_genes$symbol, 
+ #   mart = human, martL = mouse)
+
+
+entrezB_Human_to_Mouse <- getBM(attributes = c("external_gene_name", "mmusculus_homolog_associated_gene_name"),
+                  filters = "external_gene_name",
+                  values = entrezB_Human_genes$symbol ,
+                  mart = updatedHuman)
+
+setdiff(entrezB_Human_genes$symbol,entrezB_Human_to_Mouse$external_gene_name)
+#For some reason it didn't find/include these human genes DUX1 (Homolog=None), PRP4K(Homolog=Prpf4b)
+entrezB_Human_to_Mouse <- rbind(entrezB_Human_to_Mouse, data.frame(external_gene_name = c("DUX1","PRP4K"), mmusculus_homolog_associated_gene_name = c("DUX1", "Prpf4b")))
+
+#Extract all unique values from column external_gene_name that have an empty value "" in column mmusculus_homolog_associated_gene_name
+entrezB_not_found_homolgs <- entrezB_Human_to_Mouse %>%
+  group_by(external_gene_name) %>%
+  filter(n() == 1 & mmusculus_homolog_associated_gene_name == "") %>%
+  pull(external_gene_name)
+
+
+
+#Remove all unique values from column external_gene_name that have an empty value "" in column mmusculus_homolog_associated_gene_name
+entrezB_Human_to_Mouse <- entrezB_Human_to_Mouse %>%
+  group_by(external_gene_name) %>%
+  filter(!(n() == 1 & mmusculus_homolog_associated_gene_name == ""))
+
+#Remove rows with empty values
+entrezB_Human_to_Mouse <- entrezB_Human_to_Mouse[!apply(entrezB_Human_to_Mouse == "", 1, any), ] #1 indicates rows
+#CHECK if there are duplicated
+entrezB_Human_to_Mouse$external_gene_name[duplicated(entrezB_Human_to_Mouse$external_gene_name)]
+
+
+#Keep rows where the value in column external_gene_name is the same as the value in column mmusculus_homolog_associated_gene_name after capitalization 
+entrezB_Human_to_Mouse_homologCaps <- entrezB_Human_to_Mouse %>%
+  filter(toupper(external_gene_name) == toupper(mmusculus_homolog_associated_gene_name))
+
+#Rows with homologues with different names
+entrezB_Human_to_Mouse_diffNames <- entrezB_Human_to_Mouse %>%
+  filter(!(toupper(external_gene_name) == toupper(mmusculus_homolog_associated_gene_name)) & mmusculus_homolog_associated_gene_name != "")
+
+#Rows with homologues with different names that do not exist in entrezB_Human_to_Mouse_homologCaps
+entrezB_Human_to_Mouse_diffNames <- entrezB_Human_to_Mouse_diffNames[-which(entrezB_Human_to_Mouse_diffNames$external_gene_name %in% entrezB_Human_to_Mouse_homologCaps$external_gene_name),]
+
+#choose the smallest lexicographically value in column mmusculus_homolog_associated_gene_name for rows where external_gene_name repeats more than once with different values in mmusculus_homolog_associated_gene_name
+entrezB_Human_to_Mouse_diffNames <- entrezB_Human_to_Mouse_diffNames %>%
+  group_by(external_gene_name) %>%
+  mutate(count = n(),
+         y_min = ifelse(count > 1 & length(unique(mmusculus_homolog_associated_gene_name)) > 1, min(mmusculus_homolog_associated_gene_name, na.rm = TRUE), mmusculus_homolog_associated_gene_name)) %>%
+  filter(!is.na(y_min)) %>%
+  dplyr::select(-count)
+
+#After physical inspection I decided I need to change PAGR1 to Pagr1a instead of Gm42742
+#And PRAME to Pramel13 instead of Gm12789
+entrezB_Human_to_Mouse_diffNames[which(entrezB_Human_to_Mouse_diffNames$external_gene_name == "PAGR1"),3] <- "Pagr1a"
+entrezB_Human_to_Mouse_diffNames[which(entrezB_Human_to_Mouse_diffNames$external_gene_name == "PRAME"),3] <- "Pramel13"
+
+#Choose only columns external_gene_name and y_min
+entrezB_Human_to_Mouse_diffNames <- entrezB_Human_to_Mouse_diffNames[,c(1,3)]
+#Change colnames
+colnames(entrezB_Human_to_Mouse_diffNames) <- c("external_gene_name","mmusculus_homolog_associated_gene_name")
+#unique rows
+entrezB_Human_to_Mouse_diffNames <- unique(entrezB_Human_to_Mouse_diffNames)
+
+
+entrezB_Human_to_Mouse <- entrezB_Human_to_Mouse_homologCaps
+#Binding rows of final entrezA_Human_to_Mouse_diffNames with entrezB_Human_to_Mouse
+entrezB_Human_to_Mouse <- rbind(entrezB_Human_to_Mouse, entrezB_Human_to_Mouse_diffNames)
+
+# Create a new dataframe with the list values
+#entrezB_not_found_homolgs_df <- data.frame(external_gene_name = entrezB_not_found_homolgs, mmusculus_homolog_associated_gene_name = entrezB_not_found_homolgs)
+
+# Binding entrezB_not_found_homolgs human genes to entrezB_Human_to_Mouse and leaving them as they are -
+#entrezB_Human_to_Mouse <- bind_rows(entrezB_Human_to_Mouse, entrezB_not_found_homolgs_df)
+#CHECK:
+setdiff(entrezB_Human_genes$symbol,entrezB_Human_to_Mouse$external_gene_name)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#Changing colnames
+colnames(entrezB_Human_to_Mouse) <- c("symbol", "MGI.symbol")
+#Merging MGI.symbol to entrezB_Human_genes by human symbol column
+entrezB_Human_genes <- merge(entrezB_Human_genes, entrezB_Human_to_Mouse, by = "symbol")
+#Select only columns entrezgene and symbol in HUMAN
+entrezB_Human_genes <- entrezB_Human_genes[,which(colnames(entrezB_Human_genes) %in% c("entrezgene", "MGI.symbol"))]
+#CHECK
+#entrezB_Human_genes <- entrezB_Human_genes[,which(colnames(entrezB_Human_genes) %in% c("entrezgene", "symbol"))]
+#Changing colnames
+colnames(entrezB_Human_genes) <- c("entrezgene", "symbol")
+unloadNamespace("GenomicFeatures")
+unloadNamespace("biomaRt")
+library("mygene")
+
+
+#Filter out rows that were not found
+entrezB_genes <- entrezB_genes %>% dplyr::filter(is.na(notfound))
+#Select only columns entrezgene and symbol 
+entrezB_genes <- entrezB_genes[,which(colnames(entrezB_genes) %in% c("entrezgene", "symbol"))]
+
+entrezB_genes <- unique(entrezB_genes)
+#Binding gene entrez to gene symbol of mouse and human
+entrezB_genes <- rbind(entrezB_genes, entrezB_Human_genes)
+#entrezB_genes <- unique(entrezB_genes)
+
+
+
+#Tnfrsf12a = 27279
+#its ppis are 7185 7186 7187 7188
+# Merge the gene symbols back to the original dataframe
+data_symb <- merge(data, entrezA_genes, by.x = "entrezA", by.y = "entrezgene")
+data_symb_F <- merge(data_symb, entrezB_genes, by.x = "entrezB", by.y = "entrezgene")# all.x = TRUE)
+
+data_symb_F <- data_symb_F %>% dplyr::select(c("symbol.x","symbol.y"))
+
+any(is.na(data_symb_F))
+#data_symb_F <- na.omit(data_symb_F)
+data_symb_F <- data_symb_F[!apply(data_symb_F == "", 1, any), ] #1 indicates rows
+# Rename the columns to geneSymbolA and geneSymbolB
+colnames(data_symb_F) <- c("GeneNameA","GeneNameB")
+data_symb_F_unique <- unique(data_symb_F)
+
+
+#write.csv(data_symb_F_unique, ".\\mippie_ppi_v1_0_symbols.csv")
+
+write.csv(data_symb_F_unique, ".\\pickle_ppi_Standard_Gene_Normalized_v3_3_symbols.csv")
+```
+
+
+
+
+```{r}
+
+# Load the org.Mm.eg.db package for mouse gene annotation
+library(dplyr)
+
+pickle_ppi_v3_3_FULL <- read.table("C:\\Kfir_Thesis_Asaf_Madi\\Project_2 - BulkRNAseq\\Circos_Code\\DSA_Flow_Network_Calc\\GeneNormalizedTabular-everything.txt", sep = '\t',header = T)
+
+pickle_ppi_v3_3_FULL <- pickle_ppi_v3_3_FULL[,which(colnames(pickle_ppi_v3_3_FULL) %in% c("InteractorA","InteractorB"))]
+
+names(pickle_ppi_v3_3_FULL)[names(pickle_ppi_v3_3_FULL) == 'InteractorA'] <- 'entrezA'
+names(pickle_ppi_v3_3_FULL)[names(pickle_ppi_v3_3_FULL) == 'InteractorB'] <- 'entrezB'
+
+
+```
+
+
+```{r}
+
+
+###############################ANALYSIS FOR pickle_ppi_v3_3 FULL with homology conversion ##################################
+
+# Load the biomaRt package
+#library(biomaRt)
+#library(annotate)
+#library(org.Mm.eg.db)
+#library("AnnotationDbi")
+library("mygene")
+
+
+data <- pickle_ppi_v3_3_FULL
+
+
+#Convert mouse gene entrez ids A to mouse gene symbols
+entrezA_genes <- as.data.frame(queryMany(data$entrezA, fields = c("entrezgene", "symbol"), species = "mouse", size = 1))
+#Some entrez gene ids do not convert to mouse genes cause they are human genes that were obtained from cross-species studies
+entrezA_not_converted <- unique(entrezA_genes[which(entrezA_genes$notfound == TRUE),1])
+#Convert notfound gene entrez ids to human gene symbols
+entrezA_Human_genes <- as.data.frame(queryMany(entrezA_not_converted, fields = c("entrezgene", "symbol"), species = "human", size = 1))
+
+unloadNamespace("mygene")
+unloadNamespace("GenomicFeatures")
+library(biomaRt)
+human = useMart(host = "https://jan2019.archive.ensembl.org",biomart = "ensembl", dataset = "hsapiens_gene_ensembl")
+mouse = useMart(host = "https://jan2019.archive.ensembl.org",biomart = "ensembl", dataset = "mmusculus_gene_ensembl")
+updatedHuman <- useEnsembl(biomart = "ensembl", dataset = "hsapiens_gene_ensembl")
+
+entrezA_Human_to_Mouse <- getBM(attributes = c("external_gene_name", "mmusculus_homolog_associated_gene_name"),
+                  filters = "external_gene_name",
+                  values = entrezA_Human_genes$symbol ,
+                  mart = updatedHuman)
+
+#Extract all unique values from column external_gene_name that have an empty value "" in column mmusculus_homolog_associated_gene_name
+entrezA_not_found_homolgs <- entrezA_Human_to_Mouse %>%
+  group_by(external_gene_name) %>%
+  filter(n() == 1 & mmusculus_homolog_associated_gene_name == "") %>%
+  pull(external_gene_name)
+
+#setdiff(entrezA_Human_genes$symbol,entrezA_Human_to_Mouse$external_gene_name)
+
+
+#Remove all unique values from column external_gene_name that have an empty value "" in column mmusculus_homolog_associated_gene_name
+entrezA_Human_to_Mouse <- entrezA_Human_to_Mouse %>%
+  group_by(external_gene_name) %>%
+  filter(!(n() == 1 & mmusculus_homolog_associated_gene_name == ""))
+
+#Remove rows with empty values
+entrezA_Human_to_Mouse <- entrezA_Human_to_Mouse[!apply(entrezA_Human_to_Mouse == "", 1, any), ] #1 indicates rows
+#CHECK
+entrezA_Human_to_Mouse$external_gene_name[duplicated(entrezA_Human_to_Mouse$external_gene_name)]
+
+
+#Keep rows where the value in column external_gene_name is the same as the value in column mmusculus_homolog_associated_gene_name after capitalization 
+entrezA_Human_to_Mouse_homologCaps <- entrezA_Human_to_Mouse %>%
+  filter(toupper(external_gene_name) == toupper(mmusculus_homolog_associated_gene_name))
+
+#Rows with homologues with different names
+entrezA_Human_to_Mouse_diffNames <- entrezA_Human_to_Mouse %>%
+  filter(!(toupper(external_gene_name) == toupper(mmusculus_homolog_associated_gene_name)) & mmusculus_homolog_associated_gene_name != "")
+#Rows with homologues with different names that do not exist in entrezA_Human_to_Mouse_homologCaps
+entrezA_Human_to_Mouse_diffNames <- entrezA_Human_to_Mouse_diffNames[-which(entrezA_Human_to_Mouse_diffNames$external_gene_name %in% entrezA_Human_to_Mouse_homologCaps$external_gene_name),]
+
+#choose the smallest lexicographically value in column mmusculus_homolog_associated_gene_name for rows where external_gene_name repeats more than once with different values in mmusculus_homolog_associated_gene_name
+entrezA_Human_to_Mouse_diffNames <- entrezA_Human_to_Mouse_diffNames %>%
+  group_by(external_gene_name) %>%
+  mutate(count = n(),
+         y_min = ifelse(count > 1 & length(unique(mmusculus_homolog_associated_gene_name)) > 1, min(mmusculus_homolog_associated_gene_name, na.rm = TRUE), mmusculus_homolog_associated_gene_name)) %>%
+  filter(!is.na(y_min)) %>%
+  dplyr::select(-count)
+
+#Choose only columns external_gene_name and y_min
+entrezA_Human_to_Mouse_diffNames <- entrezA_Human_to_Mouse_diffNames[,c(1,3)]
+#Change colnames
+colnames(entrezA_Human_to_Mouse_diffNames) <- c("external_gene_name","mmusculus_homolog_associated_gene_name")
+#unique rows
+entrezA_Human_to_Mouse_diffNames <- unique(entrezA_Human_to_Mouse_diffNames)
+
+entrezA_Human_to_Mouse <- entrezA_Human_to_Mouse_homologCaps
+#Binding rows of final entrezA_Human_to_Mouse_diffNames with entrezA_Human_to_Mouse
+entrezA_Human_to_Mouse <- rbind(entrezA_Human_to_Mouse, entrezA_Human_to_Mouse_diffNames)
+
+# Create a new dataframe with the list values
+#entrezA_not_found_homolgs_df <- data.frame(external_gene_name = entrezA_not_found_homolgs, mmusculus_homolog_associated_gene_name = entrezA_not_found_homolgs)
+
+# Binding entrezA_not_found_homolgs human genes to entrezA_Human_to_Mouse and leaving them as they are -
+#entrezA_Human_to_Mouse <- bind_rows(entrezA_Human_to_Mouse, entrezA_not_found_homolgs_df)
+#CHECK:
+setdiff(entrezA_Human_genes$symbol,entrezA_Human_to_Mouse$external_gene_name)
+#For some reason it didn't find NHSL3, so adding physically
+entrezA_Human_to_Mouse <- bind_rows(entrezA_Human_to_Mouse, data.frame(external_gene_name = "NHSL3", mmusculus_homolog_associated_gene_name = "Nhsl3"))
+
+
+
+#Changing colnames
+colnames(entrezA_Human_to_Mouse) <- c("symbol", "MGI.symbol")
+#Merging MGI.symbol to entrezA_Human_genes by human symbol column
+entrezA_Human_genes <- merge(entrezA_Human_genes, entrezA_Human_to_Mouse, by = "symbol")
+#Select only columns entrezgene and symbol in HUMAN
+entrezA_Human_genes <- entrezA_Human_genes[,which(colnames(entrezA_Human_genes) %in% c("entrezgene", "MGI.symbol"))]
+#CHECK
+#entrezA_Human_genes <- entrezA_Human_genes[,which(colnames(entrezA_Human_genes) %in% c("entrezgene", "symbol"))]
+#Changing colnames
+colnames(entrezA_Human_genes) <- c("entrezgene", "symbol")
+unloadNamespace("GenomicFeatures")
+unloadNamespace("biomaRt")
+library("mygene")
+
+
+
+
+#Filter out rows that were not found
+entrezA_genes <- entrezA_genes %>% dplyr::filter(is.na(notfound))
+#Select only columns entrezgene and symbol 
+entrezA_genes <- entrezA_genes[,which(colnames(entrezA_genes) %in% c("entrezgene", "symbol"))]
+
+entrezA_genes <- unique(entrezA_genes)
+#Binding gene entrez to gene symbol of mouse and human
+entrezA_genes <- rbind(entrezA_genes, entrezA_Human_genes)
+#entrezA_genes <- unique(entrezA_genes)
+
+
+# Convert entrezB to gene symbols
+entrezB_genes <- as.data.frame(queryMany(data$entrezB, fields = c("entrezgene", "symbol"), species = "mouse", size = 1))
+#Some entrez gene ids do not convert to mouse genes cause they are human genes that were obtained from cross-species studies
+entrezB_not_converted <- unique(entrezB_genes[which(entrezB_genes$notfound == TRUE),1])
+#Convert notfound gene entrez ids to human gene symbols
+entrezB_Human_genes <- as.data.frame(queryMany(entrezB_not_converted, fields = c("entrezgene", "symbol"), species = "human", size = 1))
+#There was only one human entrez id that wasn't converted so I looked it up and apparently they changed its name and entrez id, so I apply it physically:
+entrezB_Human_genes[which(entrezB_Human_genes$query == 9220),which(colnames(entrezB_Human_genes) == "symbol")] <- "MYO18A"
+entrezB_Human_genes[which(entrezB_Human_genes$query == 9220),which(colnames(entrezB_Human_genes) == "entrezgene")] <- 9220
+
+#remove notfound column:
+entrezB_Human_genes <- entrezB_Human_genes[,-which(colnames(entrezB_Human_genes) == "notfound")]
+
+unloadNamespace("mygene")
+unloadNamespace("GenomicFeatures")
+library(biomaRt)
+
+
+#Converting human gene names to mouse gene names
+#entrezB_Human_to_Mouse <- getLDS(attributes = c("external_gene_name"), attributesL = c("mgi_symbol"), 
+#    uniqueRows = T, filters = 'hgnc_symbol', values=entrezB_Human_genes$symbol, 
+ #   mart = human, martL = mouse)
+
+
+entrezB_Human_to_Mouse <- getBM(attributes = c("external_gene_name", "mmusculus_homolog_associated_gene_name"),
+                  filters = "external_gene_name",
+                  values = entrezB_Human_genes$symbol ,
+                  mart = updatedHuman)
+
+setdiff(entrezB_Human_genes$symbol,entrezB_Human_to_Mouse$external_gene_name)
+#For some reason it didn't find/include these human genes DUX1 (Homolog=None), PRP4K(Homolog=Prpf4b)
+entrezB_Human_to_Mouse <- rbind(entrezB_Human_to_Mouse, data.frame(external_gene_name = c("DUX1","PRP4K"), mmusculus_homolog_associated_gene_name = c("DUX1", "Prpf4b")))
+
+#Extract all unique values from column external_gene_name that have an empty value "" in column mmusculus_homolog_associated_gene_name
+entrezB_not_found_homolgs <- entrezB_Human_to_Mouse %>%
+  group_by(external_gene_name) %>%
+  filter(n() == 1 & mmusculus_homolog_associated_gene_name == "") %>%
+  pull(external_gene_name)
+
+
+
+#Remove all unique values from column external_gene_name that have an empty value "" in column mmusculus_homolog_associated_gene_name
+entrezB_Human_to_Mouse <- entrezB_Human_to_Mouse %>%
+  group_by(external_gene_name) %>%
+  filter(!(n() == 1 & mmusculus_homolog_associated_gene_name == ""))
+
+#Remove rows with empty values
+entrezB_Human_to_Mouse <- entrezB_Human_to_Mouse[!apply(entrezB_Human_to_Mouse == "", 1, any), ] #1 indicates rows
+#CHECK if there are duplicated
+entrezB_Human_to_Mouse$external_gene_name[duplicated(entrezB_Human_to_Mouse$external_gene_name)]
+
+
+#Keep rows where the value in column external_gene_name is the same as the value in column mmusculus_homolog_associated_gene_name after capitalization 
+entrezB_Human_to_Mouse_homologCaps <- entrezB_Human_to_Mouse %>%
+  filter(toupper(external_gene_name) == toupper(mmusculus_homolog_associated_gene_name))
+
+#Rows with homologues with different names
+entrezB_Human_to_Mouse_diffNames <- entrezB_Human_to_Mouse %>%
+  filter(!(toupper(external_gene_name) == toupper(mmusculus_homolog_associated_gene_name)) & mmusculus_homolog_associated_gene_name != "")
+
+#Rows with homologues with different names that do not exist in entrezB_Human_to_Mouse_homologCaps
+entrezB_Human_to_Mouse_diffNames <- entrezB_Human_to_Mouse_diffNames[-which(entrezB_Human_to_Mouse_diffNames$external_gene_name %in% entrezB_Human_to_Mouse_homologCaps$external_gene_name),]
+
+#choose the smallest lexicographically value in column mmusculus_homolog_associated_gene_name for rows where external_gene_name repeats more than once with different values in mmusculus_homolog_associated_gene_name
+entrezB_Human_to_Mouse_diffNames <- entrezB_Human_to_Mouse_diffNames %>%
+  group_by(external_gene_name) %>%
+  mutate(count = n(),
+         y_min = ifelse(count > 1 & length(unique(mmusculus_homolog_associated_gene_name)) > 1, min(mmusculus_homolog_associated_gene_name, na.rm = TRUE), mmusculus_homolog_associated_gene_name)) %>%
+  filter(!is.na(y_min)) %>%
+  dplyr::select(-count)
+
+#After physical inspection I decided I need to change PAGR1 to Pagr1a instead of Gm42742
+#And PRAME to Pramel13 instead of Gm12789
+entrezB_Human_to_Mouse_diffNames[which(entrezB_Human_to_Mouse_diffNames$external_gene_name == "PAGR1"),3] <- "Pagr1a"
+entrezB_Human_to_Mouse_diffNames[which(entrezB_Human_to_Mouse_diffNames$external_gene_name == "PRAME"),3] <- "Pramel13"
+
+#Choose only columns external_gene_name and y_min
+entrezB_Human_to_Mouse_diffNames <- entrezB_Human_to_Mouse_diffNames[,c(1,3)]
+#Change colnames
+colnames(entrezB_Human_to_Mouse_diffNames) <- c("external_gene_name","mmusculus_homolog_associated_gene_name")
+#unique rows
+entrezB_Human_to_Mouse_diffNames <- unique(entrezB_Human_to_Mouse_diffNames)
+
+
+entrezB_Human_to_Mouse <- entrezB_Human_to_Mouse_homologCaps
+#Binding rows of final entrezA_Human_to_Mouse_diffNames with entrezB_Human_to_Mouse
+entrezB_Human_to_Mouse <- rbind(entrezB_Human_to_Mouse, entrezB_Human_to_Mouse_diffNames)
+
+# Create a new dataframe with the list values
+#entrezB_not_found_homolgs_df <- data.frame(external_gene_name = entrezB_not_found_homolgs, mmusculus_homolog_associated_gene_name = entrezB_not_found_homolgs)
+
+# Binding entrezB_not_found_homolgs human genes to entrezB_Human_to_Mouse and leaving them as they are -
+#entrezB_Human_to_Mouse <- bind_rows(entrezB_Human_to_Mouse, entrezB_not_found_homolgs_df)
+#CHECK:
+setdiff(entrezB_Human_genes$symbol,entrezB_Human_to_Mouse$external_gene_name)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#Changing colnames
+colnames(entrezB_Human_to_Mouse) <- c("symbol", "MGI.symbol")
+#Merging MGI.symbol to entrezB_Human_genes by human symbol column
+entrezB_Human_genes <- merge(entrezB_Human_genes, entrezB_Human_to_Mouse, by = "symbol")
+#Select only columns entrezgene and symbol in HUMAN
+entrezB_Human_genes <- entrezB_Human_genes[,which(colnames(entrezB_Human_genes) %in% c("entrezgene", "MGI.symbol"))]
+#CHECK
+#entrezB_Human_genes <- entrezB_Human_genes[,which(colnames(entrezB_Human_genes) %in% c("entrezgene", "symbol"))]
+#Changing colnames
+colnames(entrezB_Human_genes) <- c("entrezgene", "symbol")
+unloadNamespace("GenomicFeatures")
+unloadNamespace("biomaRt")
+library("mygene")
+
+
+#Filter out rows that were not found
+entrezB_genes <- entrezB_genes %>% dplyr::filter(is.na(notfound))
+#Select only columns entrezgene and symbol 
+entrezB_genes <- entrezB_genes[,which(colnames(entrezB_genes) %in% c("entrezgene", "symbol"))]
+
+entrezB_genes <- unique(entrezB_genes)
+#Binding gene entrez to gene symbol of mouse and human
+entrezB_genes <- rbind(entrezB_genes, entrezB_Human_genes)
+#entrezB_genes <- unique(entrezB_genes)
+
+
+
+#Tnfrsf12a = 27279
+#its ppis are 7185 7186 7187 7188
+# Merge the gene symbols back to the original dataframe
+data_symb <- merge(data, entrezA_genes, by.x = "entrezA", by.y = "entrezgene")
+data_symb_F <- merge(data_symb, entrezB_genes, by.x = "entrezB", by.y = "entrezgene")# all.x = TRUE)
+
+data_symb_F <- data_symb_F %>% dplyr::select(c("symbol.x","symbol.y"))
+
+any(is.na(data_symb_F))
+#data_symb_F <- na.omit(data_symb_F)
+data_symb_F <- data_symb_F[!apply(data_symb_F == "", 1, any), ] #1 indicates rows
+# Rename the columns to geneSymbolA and geneSymbolB
+colnames(data_symb_F) <- c("GeneNameA","GeneNameB")
+data_symb_F_unique <- unique(data_symb_F)
+
+
+#write.csv(data_symb_F_unique, ".\\mippie_ppi_v1_0_symbols.csv")
+
+write.csv(data_symb_F_unique, ".\\pickle_ppi_Standard_Gene_Normalized_v3_3_FULL_symbols.csv")
+```
+
+
+
+
+```{r}
+
+
+###############################ANALYSIS FOR pickle_ppi_v3_3 FULL NO homology conversion ##################################
+
+# Load the biomaRt package
+#library(biomaRt)
+#library(annotate)
+#library(org.Mm.eg.db)
+#library("AnnotationDbi")
+library("mygene")
+
+
+data <- pickle_ppi_v3_3_FULL
+
+
+#Convert mouse gene entrez ids A to mouse gene symbols
+entrezA_genes <- as.data.frame(queryMany(data$entrezA, fields = c("entrezgene", "symbol"), species = "mouse", size = 1))
+
+#Filter out rows that were not found
+entrezA_genes <- entrezA_genes %>% dplyr::filter(is.na(notfound))
+#Select only columns entrezgene and symbol 
+entrezA_genes <- entrezA_genes[,which(colnames(entrezA_genes) %in% c("entrezgene", "symbol"))]
+
+entrezA_genes <- unique(entrezA_genes)
+
+
+# Convert entrezB to gene symbols
+entrezB_genes <- as.data.frame(queryMany(data$entrezB, fields = c("entrezgene", "symbol"), species = "mouse", size = 1))
+
+#Filter out rows that were not found
+entrezB_genes <- entrezB_genes %>% dplyr::filter(is.na(notfound))
+#Select only columns entrezgene and symbol 
+entrezB_genes <- entrezB_genes[,which(colnames(entrezB_genes) %in% c("entrezgene", "symbol"))]
+
+entrezB_genes <- unique(entrezB_genes)
+
+#Tnfrsf12a = 27279
+#its ppis are 7185 7186 7187 7188
+# Merge the gene symbols back to the original dataframe
+data_symb <- merge(data, entrezA_genes, by.x = "entrezA", by.y = "entrezgene")
+data_symb_F <- merge(data_symb, entrezB_genes, by.x = "entrezB", by.y = "entrezgene")# all.x = TRUE)
+
+data_symb_F <- data_symb_F %>% dplyr::select(c("symbol.x","symbol.y"))
+
+any(is.na(data_symb_F))
+#data_symb_F <- na.omit(data_symb_F)
+data_symb_F <- data_symb_F[!apply(data_symb_F == "", 1, any), ] #1 indicates rows
+# Rename the columns to geneSymbolA and geneSymbolB
+colnames(data_symb_F) <- c("GeneNameA","GeneNameB")
+data_symb_F_unique <- unique(data_symb_F)
+
+
+write.csv(data_symb_F_unique, ".\\pickle_ppi_Standard_Gene_Normalized_v3_3_FULL_symbols_No_Homology_Conversion.csv")
+```

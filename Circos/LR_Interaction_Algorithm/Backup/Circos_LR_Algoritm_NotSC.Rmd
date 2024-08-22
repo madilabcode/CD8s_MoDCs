@@ -1,0 +1,303 @@
+
+```{r lib, echo=FALSE, message=FALSE, warning=FALSE, verbose=FALSE}
+library(dplyr)
+library(Seurat)
+library(knitr)
+library(ggplot2)
+library(plotly)
+library(stringr)
+library(tidyverse)  
+library(reshape2)
+library(pheatmap)
+library(dendsort)
+library(RColorBrewer)
+library(grid)
+library(igraph)
+```
+
+```{r LR function}
+#***create the Ligand_Receptor table specific to the cell subtypes***#
+
+#read the possible ligand-receptor couples in mouse
+LigandReceptorTable <- read.delim("./LR_Interaction_Algorithm/LigandReceptorTableMouse.tsv",
+                                  sep = "\t", header = T, quote = "")  
+#remove overlaps between ligand and receptor
+LigandReceptorTable <- LigandReceptorTable[!(LigandReceptorTable$from %in% intersect(LigandReceptorTable$from,LigandReceptorTable$to)),] 
+LigandReceptorTable <- LigandReceptorTable[!(LigandReceptorTable$to %in% intersect(LigandReceptorTable$from,LigandReceptorTable$to)),]
+             
+createLRtable <- function(fromName=fromName,toName=toName,num2compare="topQ"){
+  
+                          fromGenes <- subset(seuratObj, idents = fromName)
+                          #normalized count data from the sc experiment
+                          fromExpression <- GetAssayData(object = fromGenes, slot = "counts") %>% as.data.frame()
+                          #normalized  and scaled count data from the sc experiment
+                          fromScale <- GetAssayData(object = fromGenes, slot = "scale.data") %>% as.data.frame()
+
+                          toGenes <- subset(seuratObj, idents = toName)
+                          #normalized count data from the sc experiment
+                          toExpression <- GetAssayData(object = toGenes, slot = "counts") %>% as.data.frame()
+                          #normalized  and scaled count data from the sc experiment
+                          toScale <- GetAssayData(object = fromGenes, slot = "scale.data") %>% as.data.frame()
+
+                          #subset ligands in "from" and receptors in "to"
+                          fromLigands <- fromExpression[row.names(fromExpression) %in%  LigandReceptorTable$from,] 
+                          fromLigandsScale <- fromScale[row.names(fromScale) %in%  LigandReceptorTable$from,] 
+
+                          toReceptors <- toExpression[row.names(toExpression) %in% LigandReceptorTable$to,]
+                          toReceptorsScale <- toScale[row.names(toScale) %in% LigandReceptorTable$to,]
+                          
+                          #get expression mean from cells
+                          fromMean <- as.data.frame(apply(fromLigands,1, mean))  
+                          colnames(fromMean) <- "meanExp"
+
+                          fromMeanScale <- as.data.frame(apply(fromLigandsScale,1, mean))  
+                          colnames(fromMeanScale) <- "meanScale"
+
+                          if(unique(rownames(fromMeanScale)==rownames(fromMean))){
+                             fromMean$meanScale <- fromMeanScale$meanScale
+                          }else{warning("fromMean and fromMeanScale row names aren't identical")}
+
+                          toMean <-  as.data.frame(apply(toReceptors,1, mean))
+                          colnames(toMean) <- "meanExp"
+
+                          toMeanScale <-  as.data.frame(apply(toReceptorsScale,1, mean))
+                          colnames(toMeanScale) <- "meanScale"
+
+                          if(unique(rownames(toMeanScale)==rownames(toMean))){
+                             toMean$meanScale <- toMeanScale$meanScale
+                          }else{warning("toMean and toMeanScale row names aren't identical")}
+                        
+                          #take only count expressed Genes:
+                         fromMean <- subset.data.frame(fromMean, meanExp>0)
+                         toMean <- subset.data.frame(toMean, meanExp>0)
+                          
+                         #few cutoff options for comparing ligands and receptors
+                          if(num2compare %>% is.numeric()){
+                             fromtop <- as.data.frame(fromMean[order(-fromMean$meanScale),] %>% head(num2compare))
+                             totop <- as.data.frame(toMean[order(-toMean$meanScale),] %>% head(num2compare))
+                            
+                            }else if(num2compare == "Median"){ #above median
+                             fromMedian <- fromMean$meanScale %>% median()
+                             fromtop <- fromMean %>% subset(., meanScale > fromMedian)
+                             toMedian <- toMean$meanScale %>% median()
+                             totop <- toMean %>% subset(., meanScale > toMedian)
+                             
+                            }else if(num2compare == "topQ"){ #top Quantile
+                             fromTQ <- fromMean$meanScale %>% quantile() %>% .["75%"]
+                             fromtop <- subset(fromMean, meanScale > fromTQ)
+                             toTQ <- toMean$meanScale %>% quantile() %>% .["75%"]
+                             totop <- subset(toMean, meanScale > toTQ)
+                             
+                            }else if(num2compare == "topDecile"){ #top Decile
+                             fromTD <- fromMean$meanExp %>% quantile(prob = seq(0, 1, length = 11)) %>% .["90%"]
+                             fromtop <- subset(fromMean, meanExp > fromTD)
+                             toTD <- toMean$meanExp %>% quantile(prob = seq(0, 1, length = 11)) %>% .["90%"]
+                             totop <- subset(toMean, meanExp > toTD)}
+                         
+                          LigandReceptorTableSub <- LigandReceptorTable[,c(1,2)] %>% unique()
+                          LigandReceptorTableSUB1 <- LigandReceptorTableSub[which(LigandReceptorTableSub$from %in% rownames(fromtop)),]
+                          LigandReceptorTableSUB2 <- LigandReceptorTableSUB1[which(LigandReceptorTableSUB1$to %in% rownames(totop)),]
+
+                          for(i in unique(LigandReceptorTableSUB2$from)){
+                            expVal <- fromtop[which(rownames(fromtop) == i),"meanExp"]
+                            LigandReceptorTableSUB2[which(LigandReceptorTableSUB2$from == i),"fromEXP"] <- expVal}
+                          
+                          for(i in unique(LigandReceptorTableSUB2$to)){
+                            expVal <- totop[which(rownames(totop) == i),"meanExp"]
+                            LigandReceptorTableSUB2[which(LigandReceptorTableSUB2$to == i),"toEXP"] <- expVal}
+                          
+                         
+                          colnames(LigandReceptorTableSUB2) <- c("Ligand","Receptor","LigandExp","ReceptorExp")
+                          #remove overlaps between ligand and receptor
+                          LR <- LigandReceptorTableSUB2[!(LigandReceptorTableSUB2$Ligand %in% intersect(LigandReceptorTableSUB2$Ligand, LigandReceptorTableSUB2$Receptor)),] 
+                          LR <- LR[!(LR$Receptor %in% intersect(LR$Ligand,LR$Receptor)),] #reciprocally
+return(LR)}
+```
+
+```{r DE function}
+DElegenedNcolor <- function(seuratObj=seuratObj){ 
+#***create the color function and legend for differential expression data***#
+
+     #*#* DE Ligands calculation #*#*
+    markerallL <- FindMarkers(seuratObj, ident.1 = fromName, only.pos = TRUE,
+                              min.pct = 0.2, logfc.threshold = 0.2, test.use = "MAST")
+  
+    #create the color scheme and legend DE pval
+        DE_DataL <- markerallL[which(markerallL %>% row.names() %in% LR$Ligand),] 
+        DE_DataL$gene <- DE_DataL %>% row.names()
+        DE_DataL_Sub <- DE_DataL[,c("p_val_adj","gene")]
+        DE_DataL_Sub$p_val_adj <- -log10(DE_DataL_Sub$p_val_adj) 
+        
+     #*#* DE Receptors calculation #*#*
+    markerallR <- FindMarkers(seuratObj, ident.1 = toName, only.pos = TRUE,
+                              min.pct = 0.2, logfc.threshold = 0.2,test.use = "MAST")
+
+    #create the color scheme and legend DE pval
+        DE_DataR <- markerallR[which(markerallR %>% row.names() %in% LR$Receptor),] 
+        DE_DataR$gene <- DE_DataR %>% row.names()
+        DE_DataR_Sub <- DE_DataR[,c("p_val_adj","gene")]
+        DE_DataR_Sub$p_val_adj <- -log10(DE_DataR_Sub$p_val_adj) 
+        
+        DE_Data_Sub <- rbind(DE_DataL_Sub,DE_DataR_Sub) %>% unique()
+    
+       abs_maxDE = quantile(abs(c(DE_Data_Sub$p_val_adj) - 0.5), 0.95, na.rm = TRUE)
+       DEcol_fun = colorRamp2(c(0, 0.5 + abs_maxDE), c("white", "#800080"))
+       lgd_DE = Legend(at = c(0, (DE_Data_Sub$p_val_adj %>% max/2) %>% round,DE_Data_Sub$p_val_adj %>% max %>% round),
+                       col_fun = DEcol_fun, title_position = "leftcenter-rot", title = "-log(DE Pval)",legend_height = unit(2, "cm"))
+  return(list(DEcol_fun,lgd_DE,DE_Data_Sub))
+}
+```
+
+```{r DSA function}
+ENSNamesInfo <- read.delim("E:/data/LR_Interaction_Algorithm/10090.protein.info.v11.0.txt",sep = "\t", header = T, quote = "", colClasses  = c("character" ,"character" ,"numeric"), row.names = 1)
+ProtNamesInfo <- read.delim("E:/data/LR_Interaction_Algorithm/10090.protein.info.v11.0.txt",sep = "\t", header = T, quote = "", colClasses  = c("character" ,"character" ,"numeric"), row.names = 2)
+ProtActions <- read.delim("E:/data/LR_Interaction_Algorithm/10090.protein.actions.v11.0.txt",sep = "\t", header = T, quote = "" )
+
+DSAlegenedNcolor <- function(LR,threshold,toName,seuratObj){
+#***create the color function and legend for DSA data***#
+
+  allReceptorTBs <- data.frame(matrix(vector(), 0, 3, dimnames=list(c(), c("prot1","prot2","score"))),stringsAsFactors=F)  
+  weightTB <- data.frame(matrix(vector(), 0, 2, dimnames=list(c(), c("Receptor","n"))),stringsAsFactors=F) 
+  for(receptor in LR$Receptor %>% unique){
+    ensName <-  ProtNamesInfo[receptor,"protein_external_id"]
+    ReceptorTB <- ProtActions[which(ProtActions$item_id_b == ensName),]
+    ReceptorTBActive <- ReceptorTB[which(ReceptorTB$mode == "activation"),] %>% subset(.,score>threshold)
+    if((ReceptorTBActive$mode) %>% length() > 0){
+    ReceptorTBActive$item_id_b <- receptor
+    ReceptorTBActive$item_id_a <- ReceptorTBActive$item_id_a %>% as.character()
+    for(ensName in ReceptorTBActive$item_id_a){ReceptorTBActive[which(ReceptorTBActive$item_id_a == ensName),"item_id_a"] <- ENSNamesInfo[ensName,"preferred_name"]}
+    ReceptorTBActive <- ReceptorTBActive[,c(1,2,7)]
+    colnames(ReceptorTBActive) <- c("prot1","prot2","score")
+    weightTB <- rbind(weightTB,c(Receptor = receptor,
+                                  n = length(ReceptorTBActive$score)) %>% t)
+    allReceptorTBs <- rbind(allReceptorTBs,ReceptorTBActive)}}
+
+  
+  toGenes <- subset(seuratObj, idents = toName)
+  toExpression <- GetAssayData(object = toGenes, slot = "counts") %>% as.data.frame()
+  allReceptorTBs <- allReceptorTBs[grep("ENSMUSG",allReceptorTBs$prot1,invert = T),]
+                           
+  allReceptorDSA <- data.frame(matrix(vector(), 0, 3, dimnames=list(c(), c("Receptor","DSA","n"))),stringsAsFactors=F)  
+  for(receptor in allReceptorTBs$prot2 %>% unique){
+    protmeansVec <- c()
+    for(prot in subset(allReceptorTBs,prot2 == receptor)$prot1){
+      protmeansVec <- c(protmeansVec, apply(toExpression[prot,],1, mean))}
+    allReceptorDSA <- rbind(allReceptorDSA,c(Receptor = receptor, DSA = mean(protmeansVec, na.rm = T) %>% round(2), n = protmeansVec %>% length) %>% t)}
+  
+  allReceptorDSA$DSA <- as.numeric(levels(allReceptorDSA$DSA))[allReceptorDSA$DSA]
+  allReceptorDSA$n <- as.numeric(levels(allReceptorDSA$n))[allReceptorDSA$n]
+  row.names(allReceptorDSA) <- allReceptorDSA$Receptor
+  
+  abs_maxmean_weight = quantile(abs(c(allReceptorDSA$DSA) - 0.5), 0.95, na.rm = TRUE)
+  DSAcol_fun = colorRamp2(c(0, 0.5 + abs_maxmean_weight), c("white", "#28a10a"))
+  lgd_DSA = Legend(at = c(0, (allReceptorDSA$DSA %>% max()/2) %>% round(digits = 2),
+                      allReceptorDSA$DSA %>% max %>% round(digits = 2)),
+                      col_fun = DSAcol_fun, title_position = "leftcenter-rot", title = "DSA",legend_height = unit(2, "cm"))
+  return(list(DSAcol_fun,lgd_DSA,allReceptorDSA))
+}
+```
+
+```{r plot function}
+library(circlize)
+library(viridis)
+library(ComplexHeatmap)
+library(gridBase)
+library(formattable)
+library(kableExtra)
+
+       
+createCircosPlot <- function(fromName  ,toName , num2compare, path, seuratObj){
+#***integrate everything and create the circos plot***#
+
+  LR <- createLRtable(fromName ,toName , num2compare )
+  LR <- LR[order(LR$Ligand),] 
+  
+  DE <- DElegenedNcolor(seuratObj)
+  DEcol_fun <- DE[[1]]
+  lgd_DE <- DE[[2]]
+  DE_Data_Sub <- DE[[3]]
+  
+  DSA <- DSAlegenedNcolor(LR,threshold,toName,seuratObj)
+  DSAcol_fun <- DSA[[1]]
+  lgd_DSA <- DSA[[2]]
+  DSA_Data_Sub <- DSA[[3]]
+  
+#*#* create the expression color scheme and legend #*#*
+    GeneExpression <- data.frame(gene = c(LR[,1] %>% as.character,LR[,2]%>% as.character), mean = c(LR[,3]%>% as.numeric(),LR[,4]%>% as.numeric)) %>% unique()
+    GeneExpression$gene <- GeneExpression$gene %>% as.character()
+    rownames(GeneExpression) <- GeneExpression$gene %>% as.character()
+
+    EXPRcol_fun = colorRamp2(c(min(GeneExpression$mean), (max(GeneExpression$mean)+min(GeneExpression$mean))/2,
+                               max(GeneExpression$mean)), c("blue", "white", "red"))
+    lgd_EXPR = Legend(at = c(min(GeneExpression$mean) %>% round(digits = 2),
+                              ((max(GeneExpression$mean)+min(GeneExpression$mean))/2) %>% round(digits = 2),
+                               max(GeneExpression$mean)%>% round(digits = 2)),
+                       col_fun = EXPRcol_fun, title_position = "leftcenter-rot", title = "Expression",legend_height = unit(2, "cm"))
+    
+
+#combine legends
+ lgd_list_vertical = packLegend(lgd_EXPR,lgd_DE ,lgd_DSA, gap = unit(0.7, "cm"))
+
+  #receprors rectangles are grey
+  grid.colPRE = cbind(as.character(LR$Receptor), c("grey")) %>% as.data.frame()
+  #naming the sectors (slices) of the circle
+  grid.col <- setNames(as.character(grid.colPRE$V2), grid.colPRE$V1)
+  #vector of features that are in the plot
+  factors <-  unique(c(as.character(LR$Ligand),as.character(LR$Receptor)))
+  #subset LR to just names, otherwize it affect the width of the arrows
+  LR <- LR[,c("Ligand","Receptor")]
+
+  #the plot itself
+  pdf(paste0(path,"/",fromName,"_",toName,"Circos.pdf"),width=10,height=7)
+  circos.clear()
+  #making the middle of the circle vertical as opposed to horizontale
+  circosPlot <- circos.par(start.degree = 90, clock.wise = F, points.overflow.warning=FALSE)
+
+  chordDiagram(LR,scale = F,
+               big.gap = 20,
+               grid.col = grid.col,
+               directional = 1,
+               annotationTrack = "grid",
+               direction.type = c("diffHeight", "arrows"),
+               link.arr.type = "big.arrow",
+               link.sort = TRUE,
+               preAllocateTracks = list(track.height = LR %>% dimnames() %>% unlist() %>% strwidth() %>% max())) 
+  
+              #Expression loop  
+               for(i in intersect(GeneExpression$gene, factors)) {circos.rect(xleft = 0,
+                                              xright = c(grep(paste0("^",i,"$"),LR$Ligand),
+                                                         grep(paste0("^",i,"$"),LR$Receptor)) %>% length(),
+                                              ybottom = 0.7, ytop = 0.9, 
+                                              col = EXPRcol_fun(GeneExpression[i,"mean"]), 
+                                              border = EXPRcol_fun(GeneExpression[i,"mean"]),
+                                              sector.index = i, track.index = 1)}
+              #DE loop  
+               for(a in intersect(DE_Data_Sub$gene, factors)) {circos.rect(xleft = 0,
+                                              xright = c(grep(paste0("^",a,"$"),LR$Ligand),
+                                                         grep(paste0("^",a,"$"),LR$Receptor)) %>% length(),
+                                              ybottom = 0.95, ytop = 1.15, 
+                                              col = DEcol_fun(DE_Data_Sub[a,"p_val_adj"]), 
+                                              border = DEcol_fun(DE_Data_Sub[a,"p_val_adj"]),
+                                              sector.index = a, track.index = 1)}
+              #DSA loop
+               for(receptor in intersect(DSA_Data_Sub$Receptor, factors)){circos.rect(xleft = 0,
+                                              xright = grep(paste0("^",receptor,"$"),LR$Receptor) %>% length,
+                                              ybottom = 1.2, ytop = 1.2+(DSA_Data_Sub[receptor,"n"]/100), 
+                                              col = DSAcol_fun(DSA_Data_Sub[receptor,"DSA"]), 
+                                              border = DSAcol_fun(DSA_Data_Sub[receptor,"DSA"]),
+                                              sector.index = receptor, track.index = 1)}
+              #gene names track
+              circos.track(track.index = 1, panel.fun = function(x, y) {
+              circos.text(cex = 0.7,CELL_META$xcenter, CELL_META$ylim[1], CELL_META$sector.index, 
+                          facing = "clockwise", niceFacing = TRUE, adj = c(0, 0.5))},  bg.border = NA)
+              
+              circle_size = unit(1, "snpc")
+              pushViewport(viewport(x = 0, y = 0.5, width = circle_size, height = circle_size,just = c("left", "center")))
+              par(omi = gridOMI(), new = TRUE)
+              upViewport()
+              draw(lgd_list_vertical,just = c("left", "bottom"),x = unit(1, "cm"), y = unit(1, "cm"))
+              
+              dev.off()
+              print(paste0("Done making ",fromName," to ",toName))}
+
+```

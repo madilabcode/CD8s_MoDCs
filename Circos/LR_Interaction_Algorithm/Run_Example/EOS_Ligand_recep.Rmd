@@ -1,0 +1,229 @@
+```{r lib, echo=FALSE, message=FALSE, warning=FALSE, verbose=FALSE}
+library(circlize)
+library(viridis)
+library(ComplexHeatmap)
+library(knitr)
+library(tidyverse)
+#library(plotly)
+library(stringr)
+library(reshape2)
+library(pheatmap)
+library(dendsort)
+library(RColorBrewer)
+library(grid)
+library(igraph)
+library(readxl)
+library(DESeq2)
+
+```
+
+```{r Helper data, echo=FALSE}
+#HelperDataPath <- "E:/data/LR_Interaction_Algorithm/"
+#HelperDataPath <- "D:/user/Desktop/Shai/LR_Interaction_Algorithm/"
+HelperDataPath <- "C:\\Kfir_Thesis_Asaf_Madi\\Project_2 - BulkRNAseq\\Circos_Code\\LR_Interaction_Algorithm"
+
+LigandReceptorTable <- read.delim(paste0(HelperDataPath,"\\LigandReceptorTableMouse.tsv"),
+                                  sep = "\t", header = T,  quote="\"" , check.names=FALSE)  
+#DSA related data
+ProtNamesInfo <- read.delim(paste0(HelperDataPath,"\\Mouse.protein.info.v11.0.txt"),
+                            sep = "\t", header = T, quote = "", colClasses = c("character" ,"character" ,"numeric"))
+ENSNamesInfo <- ProtNamesInfo
+rownames(ENSNamesInfo) <- ENSNamesInfo$protein_external_id
+ENSNamesInfo <- ENSNamesInfo %>% dplyr::select(-c(protein_external_id))
+ProtActions <- read.delim(paste0(HelperDataPath,"\\Mouse.protein.actions.v11.0.txt"),
+                           sep = "\t", header = T, quote = "")
+
+source(paste0(HelperDataPath,'\\LR_interaction_functions\\LR_Func.R'))
+source(paste0(HelperDataPath,'\\LR_interaction_functions\\CreateCircosPlot_Func.R'))
+source(paste0(HelperDataPath,'\\LR_interaction_functions\\LegendNcolor_Funcs.R'))
+source(paste0(HelperDataPath,'\\LR_interaction_functions\\Parsing_Funcs.R'))
+
+```
+
+```{r Experiment data, echo=FALSE}
+
+#Ligands DE (genes, logFC, padj):
+MoDC6H_Intersected_up_Ligands <- read.csv("C:\\Kfir_Thesis_Asaf_Madi\\Project_2 - BulkRNAseq\\Circos_Code\\MoDC6H_Intersected_up_Ligands.csv", row.names = 1)
+#Receptors DE (genes, logFC, padj):
+T_Cells_LMoDC_vs_PMoDC_up_Receptors <- read.csv("C:\\Kfir_Thesis_Asaf_Madi\\Project_2 - BulkRNAseq\\Circos_Code\\T_Cells_LMoDC_vs_PMoDC_up_Receptors.csv", row.names = 1)
+
+#MoDC6H_Intersected_up_Ligands_Parsed <- ReceptorParser(MoDC6H_Intersected_up_Ligands,cell_line=NA, FC_thresh = 0)
+#T_Cells_LMoDC_vs_PMoDC_up_Receptors_Parsed <- ReceptorParser(T_Cells_LMoDC_vs_PMoDC_up_Receptors, FC_thresh = 0)
+
+#........... for ligands and receptors
+
+#Get counts out of this:
+MoDC_List <- readRDS("C:\\Kfir_Thesis_Asaf_Madi\\Project_2 - BulkRNAseq\\MoDC\\With_Wash\\Without_Naive_MoDC_M4_Sample\\MoDC_Without_Naive_M4.rds")
+T_Cells_Treatments_List <- readRDS("C:\\Kfir_Thesis_Asaf_Madi\\Project_2 - BulkRNAseq\\T_Cells\\Only_Treatments\\T_Cells_Treatments_Only.rds")
+
+MoDC_Counts <- as.data.frame(assay(MoDC_List$Counts_Normalized_data$data))
+MoDC_Counts <- MoDC_Counts %>% dplyr::select(c("MoDC_6H_M1", "MoDC_6H_M2", "MoDC_6H_M3", "MoDC_6H_M4"))
+
+T_Treatments_Counts <- as.data.frame(assay(T_Cells_Treatments_List$Counts_Normalized_data$data))
+T_Treatments_Counts <- T_Treatments_Counts %>% dplyr::select(c("T_PCD11_LMoDC_1", "T_PCD11_LMoDC_2", "T_PCD11_LMoDC_3", "T_PCD11_LMoDC_4"))
+
+RNAseqEXPMean <- merge(MoDC_Counts, T_Treatments_Counts, by = "row.names")
+names(RNAseqEXPMean)[names(RNAseqEXPMean) == 'Row.names'] <- 'gene_name'
+RNAseqEXPMean$MoDC_6H <- rowMeans(RNAseqEXPMean[,c("MoDC_6H_M1", "MoDC_6H_M2", "MoDC_6H_M3", "MoDC_6H_M4") ])
+RNAseqEXPMean$T_PCD11_LMoDC <- rowMeans(RNAseqEXPMean[,c("T_PCD11_LMoDC_1", "T_PCD11_LMoDC_2", "T_PCD11_LMoDC_3", "T_PCD11_LMoDC_4") ])
+RNAseqEXPMean <- RNAseqEXPMean%>%dplyr::select(-c("MoDC_6H_M1", "MoDC_6H_M2", "MoDC_6H_M3", "MoDC_6H_M4","T_PCD11_LMoDC_1", "T_PCD11_LMoDC_2", "T_PCD11_LMoDC_3", "T_PCD11_LMoDC_4"))
+
+#RNAseqEXPMean <- RNAseqEXPMean %>% tibble::column_to_rownames("Row.names")
+###################################
+#RNAseqEXPMean <- read.delim(paste0(analysis_path,"CountsMean_AllGenes.txt"),sep = "\t", header = T,  quote="\"" , check.names=FALSE) #Normalized gene expression counts with mean of replicates
+
+
+#RNAseqEXPMean <- RNAseqEXPParser(RNAseqEXPMean) #on RNAseqEXPMean
+
+
+library("org.Mm.eg.db")
+library("annotate")
+directed_mouse_ppi <- read.table("C:\\Kfir_Thesis_Asaf_Madi\\Project_2 - BulkRNAseq\\Circos_Code\\LR_Interaction_Algorithm\\mippie_ppi_v1_0.tsv", sep = "\t", header = T)
+
+directed_mouse_ppi <- directed_mouse_ppi %>% dplyr::select(c(entrezA, entrezB, MIPPIE_score))
+colnames(directed_mouse_ppi) <- c("Input-node GeneID", "Output-node GeneID", "Edge direction score")
+directed_mouse_ppi$'Input-node Gene Symbol' <- getSYMBOL(c(as.character(as.matrix(directed_mouse_ppi$`Input-node GeneID`))), data = "org.Mm.eg")
+
+directed_mouse_ppi$'Output-node Gene Symbol' <- getSYMBOL(c(as.character(as.matrix(directed_mouse_ppi$`Output-node GeneID`))), data = "org.Mm.eg")
+directed_mouse_ppi <- directed_mouse_ppi %>% relocate('Input-node Gene Symbol', .before = "Input-node GeneID")
+directed_mouse_ppi <- directed_mouse_ppi %>% relocate('Output-node Gene Symbol', .before = "Output-node GeneID")
+
+```
+
+```{r CircosPlot - all conditions}
+cell_pairs <- c("MoDC_6H","T_PCD11_LMoDC")
+for(cell_pairs in c(c("MoDC_6H","T_PCD11_LMoDC"))){ #Samples' names
+  #conflicted::conflict_prefer("select","stats","dplyr")
+  LR <- createLRtable(fromCol = ReceptorParser(MoDC6H_Intersected_up_Ligands, cell_pairs[1], FC_thresh = 0), #use ReceptorParser instead
+                      toCol   = ReceptorParser(T_Cells_LMoDC_vs_PMoDC_up_Receptors, cell_pairs[2], FC_thresh = 0),
+                      num2compare = "All",
+                      LigandReceptorTable = LigandReceptorTable,
+                      EXP.Ligands = RNAseqEXPParser(RNAseqEXPMean,cell_pairs[1]), # use RNAseqEXPParser instead
+                      EXP.Receptors = RNAseqEXPParser(RNAseqEXPMean,cell_pairs[2]),
+                      enable_overlap = T)
+  
+  #write.table(LR, file = paste0(analysis_path,"Circos/",cell_line,"_LR.tsv"), quote = F, sep = "\t",
+  #           row.names = F, col.names = T, qmethod = c("escape", "double"), fileEncoding = "")
+  
+  createCircosPlot(LR = LR,
+                   toCol = ReceptorParser(T_Cells_LMoDC_vs_PMoDC_up_Receptors, cell_pairs[2], FC_thresh = 0), # REceptors
+                   fromCol = ReceptorParser(MoDC6H_Intersected_up_Ligands, cell_pairs[1], FC_thresh = 0),
+                   threshold = 100,
+                   LigandReceptorTable = LigandReceptorTable,
+                   RNAseqEXPCol = RNAseqEXPParser(RNAseqEXPMean,cell_pairs[2]), #EXP.Receptors
+                   Figure_name = paste0("C:\\Kfir_Thesis_Asaf_Madi\\Project_2 - BulkRNAseq\\Circos_Code\\",cell_pairs[1],"_",cell_pairs[2],"_Circos.pdf"), title = "Ligand-Receptor Interactions", subtitle = "MoDC6H unique up regulated Ligands VS PcDC_LMoDC up regulated Receptors")
+  
+}
+```
+
+```{r write LR couples}
+
+for(cell_line in c(c('HCT15','HCT116','SW403','SW480','SW1417'))){
+  LR <- createLRtable(fromCol = LigandParser(MS_data, cell_line, read_thresh = 10^5),
+                      toCol   = ReceptorParser(ReceptorDE_Res, cell_line, FC_thresh = 0),
+                      num2compare = "All",
+                      LigandReceptorTable = LigandReceptorTable,
+                      EXP.Ligands = LigandParser(MS_data, cell_line, read_thresh = 10^5),
+                      EXP.Receptors = RNAseqEXPParser(RNAseqEXPMean,cell_line),
+                      enable_overlap = T)
+  
+  write.table(LR, file = paste0(analysis_path,cell_line,"_LR.tsv"), quote = F, sep = "\t",
+              row.names = F, col.names = T, qmethod = c("escape", "double"), fileEncoding = "")
+  
+  
+  write.xlsx2(LR, paste0(analysis_path,"Cell_lines_LR_TBs.xlsx"),
+              sheetName = cell_line, col.names = T, row.names = F, append = T)
+}
+
+```
+
+```{r Shared Ls and Rs}
+library(ggVennDiagram)
+library(VennDiagram)
+library(gplots)
+
+Ligands_list <- list()
+Receptors_list <- list()
+LR_Pairs_list <- list()
+
+for(cell_line in c(c('HCT15','HCT116','SW403','SW480','SW1417'))){
+  LR <- createLRtable(fromCol = LigandParser(MS_data, cell_line, read_thresh = 10^5),
+                      toCol   = ReceptorParser(ReceptorDE_Res, cell_line, FC_thresh = 0),
+                      num2compare = "All",
+                      LigandReceptorTable = LigandReceptorTable,
+                      EXP.Ligands = LigandParser(MS_data, cell_line, read_thresh = 10^5),
+                      EXP.Receptors = RNAseqEXPParser(RNAseqEXPMean,cell_line),
+                      enable_overlap = T)
+  
+  Ligands_list[[cell_line]] <- LR$Ligand %>% unique()
+  Receptors_list[[cell_line]] <- LR$Receptor %>% unique()
+  LR_Pairs_list[[cell_line]] <- paste(LR$Ligand, LR$Receptor, sep="-") 
+
+}
+
+Ligands_list_isect <- venn(Ligands_list) %>% attr("intersection")
+Ligands_list_isect_isect_DF <- stack(Ligands_list_isect)
+colnames(Ligands_list_isect_isect_DF) <- c("Gene Name", "Location in the Diagram")
+write.table(Ligands_list_isect_isect_DF, file = paste0(analysis_path,"Ligands_Venn_DF.tsv"), quote = F, sep = "\t",
+            row.names = F,col.names = T, qmethod = c("escape", "double"),fileEncoding = "")
+
+
+Receptors_list_isect <- venn(Receptors_list) %>% attr("intersection")
+Receptors_list_isect_DF <- stack(Receptors_list_isect)
+colnames(Receptors_list_isect_DF) <- c("Gene Name", "Location in the Diagram")
+write.table(Receptors_list_isect_DF, file = paste0(analysis_path,"Receptors_Venn_DF.tsv"), quote = F, sep = "\t",
+            row.names = F,col.names = T, qmethod = c("escape", "double"),fileEncoding = "")
+
+
+LR_Pairs_list_isect <- venn(LR_Pairs_list) %>% attr("intersection")
+LR_Pairs_list_isect_DF <- stack(LR_Pairs_list_isect)
+colnames(LR_Pairs_list_isect_DF) <- c("Gene Name", "Location in the Diagram")
+write.table(LR_Pairs_list_isect_DF, file = paste0(analysis_path,"LR_Pairs_Venn_DF.tsv"), quote = F, sep = "\t",
+            row.names = F,col.names = T, qmethod = c("escape", "double"),fileEncoding = "")
+```
+
+```{r Top Shared Ls and Rs bubble-plot}
+library(rio)
+data_list <- import_list(paste0(analysis_path,"Cell_lines_LR_TBs.xlsx"), setclass = "tbl")
+LR_Pairs_Venn_DF <- read.delim(paste0(analysis_path,"LR_Pairs_Venn_DF.tsv"), row.names = 1,
+                               sep = "\t", header = T,  quote="\"", check.names=FALSE) 
+
+CellLineCounter <- function(pair){LR_Pairs_Venn_DF[pair,] %>% str_split(":") %>% unlist() %>% length()}
+LR_Pairs_Venn_DF$CL_count <- lapply(LR_Pairs_Venn_DF %>% row.names, CellLineCounter) %>% unlist()
+LR_Pairs_sub <- LR_Pairs_Venn_DF %>% filter(CL_count > 2)
+
+
+pairsBubbleDF <- data.frame(matrix(vector(), 0, 4,
+                            dimnames=list(c(), c("Ligand", "Receptor", "LigandAbundance", "ReceptorExp"))),
+                            stringsAsFactors=F)
+
+for(pair in LR_Pairs_sub %>% rownames()){
+  LigandAbundVec <- vector()
+  RecepExpVec <- vector()
+  pair_splt <- str_split(pair,"-") %>% unlist()
+  for(CellLine in LR_Pairs_sub[pair,'Location in the Diagram'] %>% str_split(":") %>% unlist()){
+    pair_row <- data_list[[CellLine]] %>% filter(Ligand == pair_splt[1] & Receptor ==  pair_splt[2])
+    LigandAbundVec <-  append(LigandAbundVec, pair_row$LigandAbundance)
+    RecepExpVec <- append(RecepExpVec, pair_row$ReceptorExp)
+  }
+  pairsBubbleDF[pair,"Ligand"] = pair_splt[1]
+  pairsBubbleDF[pair,"Receptor"] = pair_splt[2]
+  pairsBubbleDF[pair,"LigandAbundance"] = LigandAbundVec %>% mean()%>% log2()
+  pairsBubbleDF[pair,"ReceptorExp"] = RecepExpVec %>% mean() %>% log2()
+}
+
+pairsBubbleDF <- pairsBubbleDF %>% filter_all(all_vars(!is.infinite(.)))
+
+ggplot(pairsBubbleDF, aes(x = Ligand, y = Receptor, size = LigandAbundance, color = ReceptorExp)) +
+  geom_point(alpha = 0.7) + 
+  theme_light() + 
+  labs(x = "\nLigands", y = "Receprots\n",
+       size = expression(log[2](Mean~Ligand~Abund.)),
+       color = expression(log[2](Mean~Receptor~EXP.))) +
+  theme(axis.text.x = element_text(angle = 90)) +
+  scale_color_gradientn(colours = c(low = "blue", high = "red"))
+ggsave(filename =  paste0(analysis_path,"Circos/LR_BubblePlot.pdf"),dpi=300,height=4,width=8)
+```
+
+
+
