@@ -58,7 +58,7 @@ Seurat_CD8 <- CreateSeuratObject(counts = CD8_Data_Raw, meta.data = metadata)
 
 ```{r}
 
-#WITH FILTRATION  CD8 DATA
+#CD8 DATA
 library(findPC)
 library(ggplot2)
 library(dplyr)
@@ -201,7 +201,7 @@ DoHeatmap(subset(Seurat_Obj, idents = "2_CD8+_Tumor_LN"), features = rownames(DE
 
 ```{r}
 
-#WITH FILTRATION ALL_DATA
+#ALL_DATA
 library(findPC)
 library(ggplot2)
 library(dplyr)
