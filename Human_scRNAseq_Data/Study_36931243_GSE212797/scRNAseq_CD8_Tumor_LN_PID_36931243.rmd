@@ -165,7 +165,7 @@ top_genes_per_cluster_df <- as.data.frame(top_genes_per_cluster)
 colnames(top_genes_per_cluster_df) <- c("Cluster_0","Cluster_1","Cluster_2","Cluster_3","Cluster_4","Cluster_5","Cluster_6","Cluster_7","Cluster_8","Cluster_9","Cluster_10")
 write.csv(top_genes_per_cluster_df, ".\\Filtered\\Top_20_DE_Genes_By_FDR_Per_Cluster.csv")
 
-#Find DEGenes between LN cells and Tumor cells in cluster 1
+#Find DEGenes between LN cells and Tumor cells in cluster 2
 
 cluster_2_cells <- Cells(subset(Seurat_Obj, idents = "2_CD8+_Tumor_LN"))
 cluster_2_subset <- subset(Seurat_Obj, cells = cluster_2_cells)
