@@ -75,11 +75,11 @@ Seurat_Obj = FindVariableFeatures(Seurat_Obj)
 #Storing gene names
 all.genes = rownames(Seurat_Obj)
 #Scaling the raw data - stored in @scale
-Seurat_Obj = ScaleData(Seurat_Obj, assay='RNA',features = rownames(Seurat_Obj))#, vars.to.regress = "percent.mt")
+Seurat_Obj = ScaleData(Seurat_Obj, assay='RNA',features = rownames(Seurat_Obj), vars.to.regress = "percent.mt")
 
 
 npcs_value = 50
-cluster_resolution = 0.8
+cluster_resolution = 0.3 #0.5 #0.8
 prplxty = 2
 #Perform linear dimensional reduction - PCA - stored under @reductions$pca
 Seurat_Obj = RunPCA(Seurat_Obj, features = VariableFeatures(object = Seurat_Obj), npcs = npcs_value)
@@ -91,7 +91,6 @@ n_dims_PCA <- max(findPC(sort(Seurat_Obj@reductions$pca@stdev,decreasing = TRUE)
 #Finding neighbors, we don't need FindClustering, because we have our own set of Idents
 Seurat_Obj = FindNeighbors(Seurat_Obj, dims = 1:n_dims_PCA)
 #Accordingly clustering the cells
-cluster_resolution= 0.5 #0.8
 Seurat_Obj = FindClusters(Seurat_Obj, resolution = cluster_resolution)
 #Run tsne
 Seurat_Obj = RunTSNE(Seurat_Obj, dims = 1:n_dims_PCA, verbose = F)
@@ -108,7 +107,239 @@ ggsave(plot = TSNE_plot_tissue,file = ".\\Filtered\\TSNE_plot_tissue.pdf", dpi=3
 
 
 Feature_plot <- FeaturePlot(Seurat_Obj, features = c("CD44", "CD69"), order=TRUE, pt.size=0.5, reduction="tsne", min.cutoff ='q40')
-ggsave(plot = Feature_plot,file = ".\\Filtered\\Features_SCRNA_Func.pdf", dpi=300, width=7, height=4) #8 8
+ggsave(plot = Feature_plot,file = ".\\Filtered\\Features_SCRNA_Func.pdf", dpi=300, width=10, height=4) #8 8
+#ggsave(plot = Feature_plot,file = ".\\Filtered\\Features_SCRNA_Func.png", dpi=300, width=10, height=4.5)
+
+
+
+
+Seurat_Obj@active.ident = Seurat_Obj$seurat_clusters
+Seurat_Obj = RenameIdents(Seurat_Obj, 
+                       "0" = "0_CD8+_Tumor", 
+                       "1" = "1_CD8+_Tumor_LN", 
+                       "2" = "2_CD8+_Tumor_LN", 
+                       "3" = "3_CD8+_LN", 
+                       "4" = "4_CD8+_Tumor", 
+                       "5" = "5_CD8+_Tumor",
+                       "6" = "6_CD8+_Tumor",
+                       "7" = "7_CD8+_Tumor")
+
+
+Seurat_Obj$orig.ident <- Seurat_Obj@active.ident
+
+# Create violin plots for each gene in CD44, CD69
+VlnPlot_CD44_CD69 <- VlnPlot(Seurat_Obj, features = c("CD44", "CD69"), group.by = "orig.ident")
+VlnPlot_CD44_CD69
+ggsave(plot = VlnPlot_CD44_CD69, file = ".\\Filtered\\VlnPlot_CD44_CD69.pdf", dpi=300, width=10, height=4.5)
+#ggsave(plot = VlnPlot_CD44_CD69, file = ".\\Filtered\\VlnPlot_CD44_CD69.png", dpi=300, width=10, height=4.5)
+
+TSNE_Plot_Final <- DimPlot(Seurat_Obj, reduction = "tsne", label=FALSE, pt.size=0.5)
+ggsave(plot = TSNE_Plot_Final, file = ".\\Filtered\\TSNE_Named_SCRNA_Func.pdf", dpi=300, width=10, height=4.5)
+#ggsave(plot = TSNE_Plot_Final, file = ".\\Filtered\\TSNE_Named_SCRNA_Func.png", dpi=300, width=10, height=4.5)
+TSNE_Plot_Labeled_Final <- DimPlot(Seurat_Obj, reduction = "tsne", label=TRUE, pt.size=0.5)
+ggsave(plot = TSNE_Plot_Labeled_Final, file = ".\\Filtered\\TSNE_Named_SCRNA_Func_Labeled.pdf", dpi=300, width=10, height=4.5)
+#ggsave(plot = TSNE_Plot_Labeled_Final, file = ".\\Filtered\\TSNE_Named_SCRNA_Func_Labeled.png", dpi=300, width=10, height=4.5)
+
+# Find the top 20 marker genes for each cluster
+markers <- FindAllMarkers(Seurat_Obj, only.pos = TRUE, min.pct = 0.1, logfc.threshold = 0.25, test.use = "wilcox")
+
+#Extract the top 20 genes by p-value for each cluster
+
+top_genes_per_cluster <- lapply(unique(markers$cluster), function(cluster_id) {
+  cluster_markers <- subset(markers, cluster == cluster_id)
+  top_genes <- cluster_markers[order(cluster_markers$p_val_adj), "gene"]
+  top_genes <- head(top_genes, 20)
+  return(top_genes)
+})
+
+top_genes_per_cluster_df <- as.data.frame(top_genes_per_cluster)
+colnames(top_genes_per_cluster_df) <- c("Cluster_0","Cluster_1","Cluster_2","Cluster_3","Cluster_4","Cluster_5","Cluster_6","Cluster_7")
+write.csv(top_genes_per_cluster_df, ".\\Filtered\\Top_20_DE_Genes_By_FDR_Per_Cluster.csv")
+
+#Find DEGenes between LN cells and Tumor cells in cluster 1
+
+cluster_1_cells <- Cells(subset(Seurat_Obj, idents = "1_CD8+_Tumor_LN"))
+cluster_1_subset <- subset(Seurat_Obj, cells = cluster_1_cells)
+
+
+#Rerun normalization, scaling, PCA, and tsne on the subsetted Seurat object:
+#Applying normalization on the data - stored in @data
+cluster_1_subset = NormalizeData(cluster_1_subset)
+#Find differentially expressed genes between cells
+cluster_1_subset = FindVariableFeatures(cluster_1_subset)
+#Storing gene names
+all.genes.cluster1 = rownames(cluster_1_subset)
+#Scaling the raw data - stored in @scale
+cluster_1_subset = ScaleData(cluster_1_subset, assay='RNA',features = rownames(cluster_1_subset), vars.to.regress = "percent.mt")
+
+
+
+npcs_value = 50
+prplxty = 2
+#Perform linear dimensional reduction - PCA - stored under @reductions$pca
+cluster_1_subset = RunPCA(cluster_1_subset, features = VariableFeatures(object = cluster_1_subset), npcs = npcs_value)
+#Determine the ‘dimensionality’ of the dataset - which PCs to take
+ElbowPlot(cluster_1_subset, ndims = 40) + theme_classic()
+
+#TAKING THE MAX number of PCs from the list of all methods to find the elbow point
+n_dims_PCA <- max(findPC(sort(cluster_1_subset@reductions$pca@stdev,decreasing = TRUE), method='all', figure = T, number=40))
+#Finding neighbors, we don't need FindClustering, because we have our own set of Idents
+cluster_1_subset = FindNeighbors(cluster_1_subset, dims = 1:n_dims_PCA)
+#Accordingly clustering the cells
+cluster_resolution= 0.2 #0.3 #0.5 #0.8
+cluster_1_subset = FindClusters(cluster_1_subset, resolution = cluster_resolution)
+#Run tsne
+cluster_1_subset = RunTSNE(cluster_1_subset, dims = 1:n_dims_PCA, verbose = F)
+TSNE_plot_Cluster1 <- DimPlot(cluster_1_subset, reduction = "tsne", label= TRUE, pt.size=0.5)
+ggsave(plot = TSNE_plot_Cluster1,file = ".\\Filtered\\TSNE_Cluster1.pdf", dpi=300, width=10, height=4.5)
+
+
+
+
+# Define the two groups based on tissue classification
+tumor_cells <- row.names(subset(cluster_1_subset@meta.data, tissue == "tumor"))
+LN_cells <-  row.names(subset(cluster_1_subset@meta.data, tissue == "lymph node"))
+
+# Identify DE genes between the two groups
+DEG_Tumor_vs_LN_Cluster1 <- FindMarkers(cluster_1_subset, ident.1 = tumor_cells, ident.2 = LN_cells)
+DEG_Tumor_vs_LN_Cluster1_FDR_sig <- subset(DEG_Tumor_vs_LN_Cluster1, p_val_adj < 0.05)
+DEG_Tumor_vs_LN_Cluster1_FDR_sig <- DEG_Tumor_vs_LN_Cluster1_FDR_sig[order(DEG_Tumor_vs_LN_Cluster1_FDR_sig$p_val_adj),]
+write.csv(DEG_Tumor_vs_LN_Cluster1_FDR_sig, ".\\Filtered\\DEG_Tumor_vs_LN_Cluster1_FDR_sig.csv")
+
+# Extract row names containing "RPL" or "MT" or "RPS"
+rows_to_remove <- grepl("RPL|MT|RPS", rownames(DEG_Tumor_vs_LN_Cluster1_FDR_sig))
+
+# Remove rows
+DEG_Tumor_vs_LN_Cluster1_FDR_sig_edited_rownames <- DEG_Tumor_vs_LN_Cluster1_FDR_sig[!rows_to_remove, ]
+
+write.csv(DEG_Tumor_vs_LN_Cluster1_FDR_sig_edited_rownames, ".\\Filtered\\DEG_Tumor_vs_LN_Cluster1_FDR_sig_filtered_rownames.csv")
+
+
+
+DoHeatmap(cluster_1_subset, 
+          features = rownames(DEG_Tumor_vs_LN_Cluster1_FDR_sig_edited_rownames %>% arrange(desc(avg_log2FC))),
+          size =4,
+          angle=0,
+          hjust = 0.5,
+          group.by = "tissue") + theme(text = element_text(size = 6))
+
+DoHeatmap(cluster_1_subset, 
+          features = rownames(DEG_Tumor_vs_LN_Cluster1_FDR_sig_edited_rownames %>% arrange(desc(avg_log2FC))),
+          size =4,
+          angle=0,
+          hjust = 0.5,
+          group.by = "tissue",
+          label = FALSE) + theme(text = element_text(size = 6))
+
+
+
+#cytotoxic_signature <- c("GZMB", "GZMH", "GZMK","TNFSF9","TNFAIP3", "IFNG", "CCL4","CCL5")
+cytotoxic_signature <- c("GZMB","GZMC","GRZMF", "IFNG","PRF1", "TNF")
+
+color_pal <- unique(ggplot_build(TSNE_plot_tissue)$data[[1]]$colour)
+
+
+cluster_1_subset_sig_scores <- AddModuleScore(cluster_1_subset,
+                  features = list(cytotoxic_signature),
+                  name="cytotoxic_sig")
+
+# Extract metadata as a data frame
+Cytotoxic_score_data <- data.frame(cluster_1_subset_sig_scores@meta.data)
+
+library(ggsignif)
+
+
+#Violin plot
+cytotoxic_enriched_vln <- VlnPlot(cluster_1_subset_sig_scores, features = "cytotoxic_sig1", group.by = "tissue") + 
+  labs(x = "", y = "Cytotoxic Signature Enrichment Score") + #size = 5
+  theme_minimal()+ 
+  ggtitle("Violin plot of Cytotoxic Signature Enrichment Score In The Tumor And LN") + 
+  theme(plot.title = element_text(size = 7,hjust = 0.5), 
+        axis.text.x = element_text(size = 7, angle = -45), 
+        axis.title.y = element_text(size = 5),
+        legend.text = element_text(size = 4),
+        legend.key.size = unit(0.5,"cm")) +
+  ylim(min(cluster_1_subset_sig_scores$cytotoxic_sig1) - 0.1, max(cluster_1_subset_sig_scores$cytotoxic_sig1) + 0.5) + geom_signif(comparisons = list(c("tumor", "lymph node")), map_signif_level = T)
+
+ggsave(plot = cytotoxic_enriched_vln, file = ".\\Filtered\\Cytotoxicity_Enriched_Violin_Plot.pdf", dpi=300, width=4, height=4)
+
+
+
+# Create the boxplot
+cytotoxic_boxplot <- ggplot(Cytotoxic_score_data, aes(x = tissue, y = cytotoxic_sig1)) +  
+  geom_boxplot(fill = color_pal, color = color_pal, width = 0.25) +
+  stat_summary(fun = mean, geom = "crossbar", color = "black", width = 0.25, fatten = 1.5) +
+  labs(x = "", y = "Cytotoxic Signature Enrichment Score") + 
+  theme_minimal() + 
+  ggtitle("Boxplot of Cytotoxic Signature Enrichment Score In The Tumor And LN") + theme(plot.title = element_text(hjust = 0.5))  +
+  geom_signif(comparisons = list(c("tumor", "lymph node")), 
+              map_signif_level = T)
+
+ggsave(plot = cytotoxic_boxplot, file = ".\\Filtered\\Cytotoxicity_Enriched_Box_Plot.pdf", dpi=300, width=7, height=7) #12 8
+```
+
+
+
+
+
+
+```{r}
+
+#CD8 DATA OLD
+library(findPC)
+library(ggplot2)
+library(dplyr)
+Seurat_Obj <- Seurat_CD8
+
+Seurat_Obj[["percent.mt"]] <- PercentageFeatureSet(Seurat_Obj, pattern = "^MT-") 
+
+VlnPlot(Seurat_Obj, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+FeatureScatter(Seurat_Obj, feature1 = "nCount_RNA", feature2 = "nFeature_RNA") +
+ geom_smooth(method = 'lm') 
+
+# 2. Filtering -----------------
+Seurat_Obj <- subset(Seurat_Obj, subset = nFeature_RNA > 200 & nFeature_RNA < 2500 & percent.mt < 3) 
+
+#Applying normalization on the data - stored in @data
+Seurat_Obj = NormalizeData(Seurat_Obj)
+#Find differentially expressed genes between cells
+Seurat_Obj = FindVariableFeatures(Seurat_Obj)
+#Storing gene names
+all.genes = rownames(Seurat_Obj)
+#Scaling the raw data - stored in @scale
+Seurat_Obj = ScaleData(Seurat_Obj, assay='RNA',features = rownames(Seurat_Obj)) #vars.to.regress = "percent.mt")
+
+
+npcs_value = 50
+cluster_resolution = 0.5 #0.8
+prplxty = 2
+#Perform linear dimensional reduction - PCA - stored under @reductions$pca
+Seurat_Obj = RunPCA(Seurat_Obj, features = VariableFeatures(object = Seurat_Obj), npcs = npcs_value)
+#Determine the ‘dimensionality’ of the dataset - which PCs to take
+ElbowPlot(Seurat_Obj, ndims = 40) + theme_classic()
+
+#TAKING THE MAX number of PCs from the list of all methods to find the elbow point
+n_dims_PCA <- max(findPC(sort(Seurat_Obj@reductions$pca@stdev,decreasing = TRUE), method='all', figure = T, number=40))
+#Finding neighbors, we don't need FindClustering, because we have our own set of Idents
+Seurat_Obj = FindNeighbors(Seurat_Obj, dims = 1:n_dims_PCA)
+#Accordingly clustering the cells
+Seurat_Obj = FindClusters(Seurat_Obj, resolution = cluster_resolution)
+#Run tsne
+Seurat_Obj = RunTSNE(Seurat_Obj, dims = 1:n_dims_PCA, verbose = F)
+#TSNE plot
+TSNE_plot <- DimPlot(Seurat_Obj, reduction = "tsne", label= TRUE, pt.size=0.5)
+ggsave(plot = TSNE_plot,file = ".\\Filtered\\TSNE_SCRNA_Func.pdf", dpi=300, width=10, height=4.5)
+#ggsave(plot = TSNE_plot,file = ".\\Filtered\\TSNE_SCRNA_Func.png", dpi=300, width=10, height=4.5)
+
+TSNE_plot_tissue <- DimPlot(Seurat_Obj, reduction = "tsne", label= TRUE, pt.size=0.5, group.by = "tissue")
+ggsave(plot = TSNE_plot_tissue,file = ".\\Filtered\\TSNE_plot_tissue.pdf", dpi=300, width=10, height=4.5)
+#ggsave(plot = TSNE_plot_tissue,file = ".\\Filtered\\TSNE_plot_tissue.png", dpi=300, width=10, height=4.5)
+
+
+
+
+Feature_plot <- FeaturePlot(Seurat_Obj, features = c("CD44", "CD69"), order=TRUE, pt.size=0.5, reduction="tsne", min.cutoff ='q40')
+ggsave(plot = Feature_plot,file = ".\\Filtered\\Features_SCRNA_Func.pdf", dpi=300, width=10, height=4) #8 8
 #ggsave(plot = Feature_plot,file = ".\\Filtered\\Features_SCRNA_Func.png", dpi=300, width=10, height=4.5)
 
 
@@ -251,10 +482,28 @@ cluster_2_subset_sig_scores <- AddModuleScore(cluster_2_subset,
 Cytotoxic_score_data <- data.frame(cluster_2_subset_sig_scores@meta.data)
 
 library(ggsignif)
+
+
+#Violin plot
+cytotoxic_enriched_vln <- VlnPlot(cluster_2_subset_sig_scores, features = "cytotoxic_sig1", group.by = "tissue") + 
+  labs(x = "", y = "Cytotoxic Signature Enrichment Score") + #size = 5
+  theme_minimal()+ 
+  ggtitle("Violin plot of Cytotoxic Signature Enrichment Score In The Tumor And LN") + 
+  theme(plot.title = element_text(size = 7,hjust = 0.5), 
+        axis.text.x = element_text(size = 7, angle = -45), 
+        axis.title.y = element_text(size = 5),
+        legend.text = element_text(size = 4),
+        legend.key.size = unit(0.5,"cm")) +
+  ylim(min(cluster_2_subset_sig_scores$cytotoxic_sig1) - 0.1, max(cluster_2_subset_sig_scores$cytotoxic_sig1) + 0.5) + geom_signif(comparisons = list(c("tumor", "lymph node")), map_signif_level = T)
+
+ggsave(plot = cytotoxic_enriched_vln, file = ".\\Filtered\\Cytotoxicity_Enriched_Violin_Plot.pdf", dpi=300, width=4, height=4)
+
+
+
 # Create the boxplot
 cytotoxic_boxplot <- ggplot(Cytotoxic_score_data, aes(x = tissue, y = cytotoxic_sig1)) +  
-  geom_boxplot(fill = color_pal, color = "black", width = 0.25) +
-  #stat_summary(fun = mean, geom = "crossbar", color = "black", width = 0.25, fatten = 1.5) +
+  geom_boxplot(fill = color_pal, color = color_pal, width = 0.25) +
+  stat_summary(fun = mean, geom = "crossbar", color = "black", width = 0.25, fatten = 1.5) +
   labs(x = "", y = "Cytotoxic Signature Enrichment Score") + 
   theme_minimal() + 
   ggtitle("Boxplot of Cytotoxic Signature Enrichment Score In The Tumor And LN") + theme(plot.title = element_text(hjust = 0.5))  +
@@ -262,13 +511,6 @@ cytotoxic_boxplot <- ggplot(Cytotoxic_score_data, aes(x = tissue, y = cytotoxic_
               map_signif_level = T)
 
 ggsave(plot = cytotoxic_boxplot, file = ".\\Filtered\\Cytotoxicity_Enriched_Box_Plot.pdf", dpi=300, width=7, height=7) #12 8
-
-#Violin plot
-cytotoxic_enriched_vln <- VlnPlot(cluster_2_subset_sig_scores, features = "cytotoxic_sig1", group.by = "tissue") + labs(x = "", y = "Cytotoxic Signature Enrichment Score") +  theme_minimal()+ ggtitle("Violin plot of Cytotoxic Signature Enrichment Score In The Tumor And LN") + theme(plot.title = element_text(hjust = 0.5)) + ylim(min(cluster_2_subset_sig_scores$cytotoxic_sig1),max(cluster_2_subset_sig_scores$cytotoxic_sig1) + 0.5) + geom_signif(comparisons = list(c("tumor", "lymph node")), 
-              map_signif_level = T)
-ggsave(plot = cytotoxic_enriched_vln, file = ".\\Filtered\\Cytotoxicity_Enriched_Violin_Plot.pdf", dpi=300, width=8, height=8)
-
-
 ```
 
 
@@ -414,7 +656,9 @@ ggsave(plot = Feature_plot_cDCS,file = ".\\Filtered_AllData\\Clusters_9_13_14\\F
 
 cDCs_Signature <- c("FLT3", "XCR1", "CLEC9A", "BATF3", "IRF8","CLEC10A", "CD1C")
 
-MoDCs_Signature <- c("CD14","CCR2","S100A8","S100A9","LYZ", "MRC1","FCGR1A") #"TLR2", "FCER1A","CD83" ,"IL1B","CD68","CD1A","FCGR3A" 
+#MoDCs_Signature <- c("CD14","CCR2","S100A8","S100A9","LYZ", "MRC1","FCGR1A", "ETV6", "ETV3", "MAFB") #"TLR2", "FCER1A","CD83" ,"IL1B","CD68","CD1A","FCGR3A" 
+
+MoDCs_Signature <- c("CSF1R", "S100A8","S100A9", "FCGR3A", "CCR2", "IL1B", "MMP9", "TLR8", "CD14")
 
 #cDCs_Signature <- c("CLEC10A", "CD1C", "CLEC9A", "XCR1","CD1E","FCGR2B", "NET1") 
 
@@ -443,8 +687,24 @@ MoDCs_boxplot <- ggplot(MoDCs_score_data, aes(x = tissue, y = MoDCs_Enriched1)) 
 ggsave(plot = MoDCs_boxplot, file = ".\\Filtered_AllData\\Clusters_9_13_14\\MoDCs_Enriched_Box_Plot.pdf", dpi=300, width=7, height=7) #12 8
 
 #Violin plot
-MoDCs_Enriched <- VlnPlot(Seurat_MoDCs, features = "MoDCs_Enriched1", group.by = "tissue") 
-ggsave(plot = MoDCs_Enriched, file = ".\\Filtered_AllData\\Clusters_9_13_14\\MoDCs_Enriched_Violin_Plot.pdf", dpi=300, width=12, height=8)
+MoDCs_Enriched <- VlnPlot(Seurat_MoDCs, features = "MoDCs_Enriched1", group.by = "tissue", pt.size = 0) + 
+  labs(x = "", y = "MoDC Signature Enrichment Score") +
+  theme_minimal() +
+  ggtitle("Violin plot of MoDCs Signature Enrichment Score In The Tumor And LN") + 
+  theme(plot.title = element_text(size = 7,hjust = 0.5), 
+        axis.text.x = element_text(size = 7, angle = -45), 
+        axis.title.y = element_text(size = 5),
+        legend.text = element_text(size = 4),
+        legend.key.size = unit(0.5,"cm")) +
+  ylim(min(Seurat_MoDCs$MoDCs_Enriched1) - 0.1, max(Seurat_MoDCs$MoDCs_Enriched1) + 0.5) +
+  geom_signif(comparisons = list(c("tumor", "lymph node")), map_signif_level = T)
+
+ggsave(plot = MoDCs_Enriched, file = ".\\Filtered_AllData\\Clusters_9_13_14\\MoDCs_Enriched_Violin_Plot.pdf", dpi=300, width=4, height=4)
+
+
+
+
+
 
 Seurat_cDCs <- AddModuleScore(Seurat_clusters_9_13_14,
                   features = list(cDCs_Signature),
@@ -467,9 +727,18 @@ ggsave(plot = cDCs_boxplot, file = ".\\Filtered_AllData\\Clusters_9_13_14\\cDCs_
 
 
 
-cDCs_Enriched <- VlnPlot(Seurat_cDCs, features = "cDCs_Enriched1", group.by = "tissue")
-ggsave(plot = cDCs_Enriched, file = ".\\Filtered_AllData\\Clusters_9_13_14\\cDCs_Enriched_Violin_Plot.pdf", dpi=300, width=12, height=8)
-
+cDCs_Enriched <- VlnPlot(Seurat_cDCs, features = "cDCs_Enriched1", group.by = "tissue", pt.size = 0) +
+  labs(x = "", y = "cDC Signature Enrichment Score") +
+  theme_minimal() +
+  ggtitle("Violin plot of cDCs Signature Enrichment Score In The Tumor And LN") + 
+  theme(plot.title = element_text(size = 7,hjust = 0.5), 
+        axis.text.x = element_text(size = 7, angle = -45), 
+        axis.title.y = element_text(size = 5),
+        legend.text = element_text(size = 4),
+        legend.key.size = unit(0.5,"cm")) +
+  ylim(min(Seurat_cDCs$cDCs_Enriched1) - 0.1, max(Seurat_cDCs$cDCs_Enriched1) + 0.5) +
+  geom_signif(comparisons = list(c("tumor", "lymph node")), map_signif_level = T)
+ggsave(plot = cDCs_Enriched, file = ".\\Filtered_AllData\\Clusters_9_13_14\\cDCs_Enriched_Violin_Plot.pdf", dpi=300, width=4, height=4)
 
 
 
